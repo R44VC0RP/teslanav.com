@@ -714,7 +714,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
               align-items: center;
               justify-content: center;
             ">
-              <img src="${icon}" alt="${cluster.mostSevereType}" style="width: 44px; height: auto;" />
+              <img src="${icon}" alt="${cluster.mostSevereType}" style="width: 44px; height: auto;${!isDarkMode ? ' filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));' : ''}" />
             </div>
             <div class="alert-badge" style="
               position: absolute;
@@ -788,7 +788,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
               align-items: center;
               justify-content: center;
             ">
-              <img src="${icon}" alt="${alert.type}" style="width: 36px; height: auto;" />
+              <img src="${icon}" alt="${alert.type}" style="width: 36px; height: auto;${!isDarkMode ? ' filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));' : ''}" />
             </div>
           </div>
         `;
@@ -890,7 +890,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
             align-items: center;
             justify-content: center;
           ">
-            <img src="${icon}" alt="${cameraTypeLabel}" style="width: 36px; height: auto;" />
+            <img src="${icon}" alt="${cameraTypeLabel}" style="width: 36px; height: auto;${!isDarkMode ? ' filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));' : ''}" />
           </div>
         </div>
       `;
