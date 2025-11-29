@@ -184,13 +184,13 @@ export default function Home() {
         <button
           onClick={toggleFollowMode}
           className={`
-            w-16 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center
+            w-[72px] h-[72px] rounded-xl backdrop-blur-xl flex items-center justify-center
             ${getButtonStyles(effectiveDarkMode)}
             shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
           `}
           aria-label={followMode ? "Lock north up" : "Follow heading"}
         >
-          <div className="relative w-10 h-10">
+          <div className="relative w-11 h-11">
             {/* Compass icon */}
             <svg viewBox="0 0 24 24" className="w-full h-full">
               {/* Outer circle */}
@@ -217,7 +217,7 @@ export default function Home() {
         {filteredAlerts.length > 0 && (
           <div
             className={`
-              w-16 flex flex-col items-center gap-1.5 py-2.5 rounded-xl backdrop-blur-xl
+              w-[72px] flex flex-col items-center gap-1.5 py-3 rounded-xl backdrop-blur-xl
               ${getContainerStyles(effectiveDarkMode)}
               shadow-lg border
             `}
@@ -288,13 +288,34 @@ export default function Home() {
             posthog.capture("settings_opened");
           }}
           className={`
-            w-14 h-14 rounded-xl backdrop-blur-xl flex items-center justify-center
+            w-16 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center
             ${getButtonStyles(effectiveDarkMode)}
             shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
           `}
           aria-label="Settings"
         >
-          <SettingsIcon className="w-6 h-6" />
+          <SettingsIcon className="w-7 h-7" />
+        </button>
+
+        {/* Satellite Toggle Button */}
+        <button
+          onClick={() => {
+            handleToggleSatellite(!useSatellite);
+            posthog.capture("satellite_quick_toggled", {
+              satellite_enabled: !useSatellite,
+            });
+          }}
+          className={`
+            w-16 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center
+            ${useSatellite 
+              ? "bg-blue-500/80 text-white border-blue-400/30" 
+              : getButtonStyles(effectiveDarkMode)
+            }
+            shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
+          `}
+          aria-label={useSatellite ? "Switch to standard map" : "Switch to satellite view"}
+        >
+          <SatelliteIcon className="w-7 h-7" />
         </button>
       </div>
 
@@ -305,14 +326,14 @@ export default function Home() {
           <button
             onClick={handleRecenter}
             className={`
-              px-5 h-14 rounded-xl backdrop-blur-xl flex items-center justify-center gap-2
+              px-6 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center gap-2
               bg-blue-500/80 text-white border-blue-400/30
               shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
             `}
             aria-label="Recenter on location"
           >
-            <CrosshairIcon className="w-5 h-5" />
-            <span className="text-base font-medium">Recenter</span>
+            <CrosshairIcon className="w-6 h-6" />
+            <span className="text-lg font-medium">Recenter</span>
           </button>
         )}
 
@@ -320,42 +341,42 @@ export default function Home() {
         <button
           onClick={handleZoomOut}
           className={`
-            w-14 h-14 rounded-xl backdrop-blur-xl flex items-center justify-center
+            w-16 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center
             ${getButtonStyles(effectiveDarkMode)}
             shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
           `}
           aria-label="Zoom out"
         >
-          <MinusIcon className="w-6 h-6" />
+          <MinusIcon className="w-7 h-7" />
         </button>
 
         {/* Zoom In */}
         <button
           onClick={handleZoomIn}
           className={`
-            w-14 h-14 rounded-xl backdrop-blur-xl flex items-center justify-center
+            w-16 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center
             ${getButtonStyles(effectiveDarkMode)}
             shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
           `}
           aria-label="Zoom in"
         >
-          <PlusIcon className="w-6 h-6" />
+          <PlusIcon className="w-7 h-7" />
         </button>
 
         {/* Dark Mode Toggle */}
         <button
           onClick={toggleDarkMode}
           className={`
-            w-14 h-14 rounded-xl backdrop-blur-xl flex items-center justify-center
+            w-16 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center
             ${getButtonStyles(effectiveDarkMode)}
             shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
           `}
           aria-label="Toggle dark mode"
         >
           {isDarkMode ? (
-            <SunIcon className="w-6 h-6" />
+            <SunIcon className="w-7 h-7" />
           ) : (
-            <MoonIcon className="w-6 h-6" />
+            <MoonIcon className="w-7 h-7" />
           )}
         </button>
       </div>
@@ -459,6 +480,22 @@ function SettingsIcon({ className }: { className?: string }) {
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+}
+
+function SatelliteIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      {/* Globe/Earth */}
+      <circle cx="12" cy="12" r="9" />
+      {/* Latitude lines */}
+      <ellipse cx="12" cy="12" rx="9" ry="4" />
+      <ellipse cx="12" cy="12" rx="9" ry="7" />
+      {/* Longitude line */}
+      <path strokeLinecap="round" d="M12 3v18" />
+      {/* Horizontal center */}
+      <path strokeLinecap="round" d="M3 12h18" />
     </svg>
   );
 }
