@@ -127,6 +127,36 @@ function getAngleDiff(from: number, to: number): number {
   return diff > 180 ? diff - 360 : diff;
 }
 
+// Hide POI and place labels from the map
+function hidePlaceLabels(mapInstance: mapboxgl.Map) {
+  const style = mapInstance.getStyle();
+  if (!style || !style.layers) return;
+
+  // Layer patterns to hide (POIs, places, landmarks)
+  const labelsToHide = [
+    'poi-label',
+    'transit-label', 
+    'place-label',
+    'settlement-label',
+    'settlement-subdivision-label',
+    'airport-label',
+    'natural-point-label',
+    'water-point-label',
+    'waterway-label',
+  ];
+
+  style.layers.forEach((layer) => {
+    // Check if layer ID contains any of the label patterns
+    const shouldHide = labelsToHide.some(pattern => 
+      layer.id.includes(pattern)
+    );
+    
+    if (shouldHide && mapInstance.getLayer(layer.id)) {
+      mapInstance.setLayoutProperty(layer.id, 'visibility', 'none');
+    }
+  });
+}
+
 export const Map = forwardRef<MapRef, MapProps>(function Map(
   {
     center = [-122.4194, 37.7749],
@@ -333,6 +363,11 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     map.current.on("load", () => {
       setMapLoaded(true);
 
+      // Hide POI and place labels
+      if (map.current) {
+        hidePlaceLabels(map.current);
+      }
+
       if (map.current && onBoundsChange) {
         const bounds = map.current.getBounds();
         if (bounds) {
@@ -426,6 +461,13 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     }
 
     map.current.setStyle(currentStyle);
+    
+    // Hide labels after style loads
+    map.current.once("style.load", () => {
+      if (map.current) {
+        hidePlaceLabels(map.current);
+      }
+    });
   }, [isDarkMode, mapLoaded, useSatellite]);
 
   // Toggle traffic layer
@@ -573,8 +615,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     markersRef.current = [];
 
     // Theme-aware colors
-    const borderColor = isDarkMode ? "#3d3d3d" : "#f0f0f0";
-    const shadowColor = isDarkMode ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.25)";
+    const shadowColor = isDarkMode ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.15)";
     const popupBg = isDarkMode ? "#1a1a1a" : "white";
     const popupText = isDarkMode ? "#e5e5e5" : "#374151";
     const popupSubtext = isDarkMode ? "#9ca3af" : "#6b7280";
@@ -591,55 +632,45 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       const icon = ALERT_ICONS[cluster.mostSevereType] || "📍";
 
       if (isCluster) {
-        // Cluster marker - shows count with most severe color
+        // Cluster marker - minimal bubble with count badge
         const count = cluster.alerts.length;
-        const size = Math.min(56, 40 + count * 2); // Grow slightly with more alerts
         
         el.innerHTML = `
           <div class="alert-pin cluster" style="
             position: relative;
             cursor: pointer;
             transition: transform 0.15s ease-out;
-            filter: drop-shadow(0 4px 8px ${shadowColor});
           ">
             <div class="alert-pin-body" style="
               display: flex;
-              flex-direction: column;
               align-items: center;
               justify-content: center;
-              width: ${size}px;
-              height: ${size}px;
+              width: 36px;
+              height: 36px;
               background: ${color};
-              border: 3px solid ${borderColor};
-              border-radius: 12px;
-              font-size: 14px;
-              gap: 1px;
+              border-radius: 10px;
+              font-size: 18px;
+              box-shadow: 0 2px 8px ${shadowColor};
             ">
-              <span style="font-size: 14px;">${icon}</span>
-              <span style="font-size: 11px; font-weight: 600; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.3);">+${count}</span>
+              ${icon}
             </div>
-            <div class="alert-pin-point" style="
+            <div class="alert-badge" style="
               position: absolute;
-              bottom: -10px;
-              left: 50%;
-              transform: translateX(-50%);
-              width: 0;
-              height: 0;
-              border-left: 10px solid transparent;
-              border-right: 10px solid transparent;
-              border-top: 12px solid ${borderColor};
-            "></div>
-            <div class="alert-pin-point-inner" style="
-              position: absolute;
-              bottom: -6px;
-              left: 50%;
-              transform: translateX(-50%);
-              width: 0;
-              height: 0;
-              border-left: 7px solid transparent;
-              border-right: 7px solid transparent;
-              border-top: 9px solid ${color};
-            "></div>
+              top: -6px;
+              right: -6px;
+              min-width: 18px;
+              height: 18px;
+              background: white;
+              border-radius: 9px;
+              font-size: 11px;
+              font-weight: 700;
+              color: ${color};
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              padding: 0 4px;
+              box-shadow: 0 1px 3px ${shadowColor};
+            ">+${count}</div>
           </div>
         `;
 
@@ -669,20 +700,20 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         `;
 
         const popup = new mapboxgl.Popup({
-          offset: 35,
+          offset: 25,
           closeButton: false,
           maxWidth: "240px",
           className: `alert-popup-container ${isDarkMode ? "dark" : ""}`,
         }).setHTML(popupContent);
 
-        const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+        const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
           .setLngLat([cluster.center.x, cluster.center.y])
           .setPopup(popup)
           .addTo(map.current!);
 
         markersRef.current.push(marker);
       } else {
-        // Single alert marker
+        // Single alert marker - minimal bubble
         const alert = cluster.alerts[0];
         
         el.innerHTML = `
@@ -690,43 +721,20 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
             position: relative;
             cursor: pointer;
             transition: transform 0.15s ease-out;
-            filter: drop-shadow(0 3px 6px ${shadowColor});
           ">
             <div class="alert-pin-body" style="
               display: flex;
               align-items: center;
               justify-content: center;
-              width: 40px;
-              height: 40px;
+              width: 32px;
+              height: 32px;
               background: ${color};
-              border: 3px solid ${borderColor};
-              border-radius: 10px;
-              font-size: 18px;
+              border-radius: 8px;
+              font-size: 16px;
+              box-shadow: 0 2px 6px ${shadowColor};
             ">
               ${icon}
             </div>
-            <div class="alert-pin-point" style="
-              position: absolute;
-              bottom: -8px;
-              left: 50%;
-              transform: translateX(-50%);
-              width: 0;
-              height: 0;
-              border-left: 8px solid transparent;
-              border-right: 8px solid transparent;
-              border-top: 10px solid ${borderColor};
-            "></div>
-            <div class="alert-pin-point-inner" style="
-              position: absolute;
-              bottom: -4px;
-              left: 50%;
-              transform: translateX(-50%);
-              width: 0;
-              height: 0;
-              border-left: 5px solid transparent;
-              border-right: 5px solid transparent;
-              border-top: 7px solid ${color};
-            "></div>
           </div>
         `;
 
@@ -746,13 +754,13 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         `;
 
         const popup = new mapboxgl.Popup({
-          offset: 30,
+          offset: 20,
           closeButton: false,
           maxWidth: "240px",
           className: `alert-popup-container ${isDarkMode ? "dark" : ""}`,
         }).setHTML(popupContent);
 
-        const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
+        const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
           .setLngLat([alert.location.x, alert.location.y])
           .setPopup(popup)
           .addTo(map.current!);

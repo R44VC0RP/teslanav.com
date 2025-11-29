@@ -315,7 +315,7 @@ export default function Home() {
           `}
           aria-label={useSatellite ? "Switch to standard map" : "Switch to satellite view"}
         >
-          <SatelliteIcon className="w-7 h-7" />
+          <span className="text-3xl leading-none">🛰️</span>
         </button>
       </div>
 
@@ -484,18 +484,3 @@ function SettingsIcon({ className }: { className?: string }) {
   );
 }
 
-function SatelliteIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      {/* Globe/Earth */}
-      <circle cx="12" cy="12" r="9" />
-      {/* Latitude lines */}
-      <ellipse cx="12" cy="12" rx="9" ry="4" />
-      <ellipse cx="12" cy="12" rx="9" ry="7" />
-      {/* Longitude line */}
-      <path strokeLinecap="round" d="M12 3v18" />
-      {/* Horizontal center */}
-      <path strokeLinecap="round" d="M3 12h18" />
-    </svg>
-  );
-}
