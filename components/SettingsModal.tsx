@@ -271,6 +271,37 @@ export function SettingsModal({
                 </div>
               </div>
             </div>
+
+            {/* Support Section */}
+            <div>
+              <h3 className={`text-base font-medium uppercase tracking-wider mb-4 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                Support
+              </h3>
+              <div className={`
+                p-5 rounded-xl
+                ${isDarkMode ? "bg-white/5" : "bg-black/5"}
+              `}>
+                <div className="flex items-center gap-4">
+                  <span className="text-3xl">💬</span>
+                  <div>
+                    <div className="text-lg font-medium">Feature Requests & Bug Reports</div>
+                    <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                      Have an idea or found a bug? Let us know!
+                    </div>
+                    <a 
+                      href="mailto:ryan@teslanav.com"
+                      className="inline-flex items-center gap-2 mt-3 px-4 py-2 rounded-lg bg-blue-500 text-white text-base font-medium hover:bg-blue-600 transition-colors"
+                      onClick={() => {
+                        posthog.capture("support_email_clicked");
+                      }}
+                    >
+                      <EmailIcon className="w-5 h-5" />
+                      ryan@teslanav.com
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -315,6 +346,14 @@ function CloseIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+function EmailIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
     </svg>
   );
 }
