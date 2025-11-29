@@ -312,6 +312,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     // Determine initial style
     let initialStyle: string;
     if (useSatellite) {
+      // Use standard satellite with streets overlay for better detail
       initialStyle = "mapbox://styles/mapbox/satellite-streets-v12";
     } else {
       initialStyle = isDarkMode
@@ -416,6 +417,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
 
     let currentStyle: string;
     if (useSatellite) {
+      // Use standard satellite with streets overlay for better detail
       currentStyle = "mapbox://styles/mapbox/satellite-streets-v12";
     } else {
       currentStyle = isDarkMode
@@ -442,24 +444,29 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       }
 
       // Add traffic layer if it doesn't exist
+      // Only show congested sections (moderate, heavy, severe) - no green/low traffic
       if (!mapInstance.getLayer("traffic-layer")) {
         mapInstance.addLayer({
           id: "traffic-layer",
           type: "line",
           source: "mapbox-traffic",
           "source-layer": "traffic",
+          filter: [
+            "in",
+            ["get", "congestion"],
+            ["literal", ["moderate", "heavy", "severe"]]
+          ],
           paint: {
-            "line-width": 2,
+            "line-width": 3,
             "line-color": [
               "match",
               ["get", "congestion"],
-              "low", "#4ade80",
               "moderate", "#facc15", 
               "heavy", "#f97316",
               "severe", "#ef4444",
-              "#6b7280"
+              "#f97316"
             ],
-            "line-opacity": 0.8,
+            "line-opacity": 0.85,
           },
         });
       }
@@ -789,16 +796,16 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       <style jsx global>{`
         .user-avatar-container {
           position: relative;
-          width: 56px;
-          height: 56px;
+          width: 72px;
+          height: 72px;
         }
         
         .user-avatar {
           position: absolute;
           top: 50%;
           left: 50%;
-          width: 36px;
-          height: 36px;
+          width: 48px;
+          height: 48px;
           z-index: 3;
           transition: transform 0.1s ease-out;
         }
@@ -807,13 +814,12 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
           width: 100%;
           height: 100%;
           object-fit: cover;
-      
         }
         
         .user-avatar-pulse {
           position: absolute;
-          width: 56px;
-          height: 56px;
+          width: 72px;
+          height: 72px;
           background: rgba(59, 130, 246, 0.25);
           border-radius: 50%;
           top: 50%;

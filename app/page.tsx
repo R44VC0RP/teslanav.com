@@ -28,7 +28,7 @@ export default function Home() {
   const [isCentered, setIsCentered] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showWazeAlerts, setShowWazeAlerts] = useState(true);
-  const [showTraffic, setShowTraffic] = useState(false);
+  const [showTraffic, setShowTraffic] = useState(true);
   const [useSatellite, setUseSatellite] = useState(false);
   const [showAvatarPulse, setShowAvatarPulse] = useState(true);
   const mapRef = useRef<MapRef>(null);
@@ -179,18 +179,18 @@ export default function Home() {
       />
 
       {/* Top Right - Compass + Alert Summary (stacked) */}
-      <div className="absolute top-4 right-4 z-30 flex flex-col items-end gap-2">
+      <div className="absolute top-4 right-4 z-30 flex flex-col items-end gap-3">
         {/* Compass/Orientation Toggle */}
         <button
           onClick={toggleFollowMode}
           className={`
-            w-14 h-14 rounded-xl backdrop-blur-xl flex items-center justify-center
+            w-16 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center
             ${getButtonStyles(effectiveDarkMode)}
             shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
           `}
           aria-label={followMode ? "Lock north up" : "Follow heading"}
         >
-          <div className="relative w-8 h-8">
+          <div className="relative w-10 h-10">
             {/* Compass icon */}
             <svg viewBox="0 0 24 24" className="w-full h-full">
               {/* Outer circle */}
@@ -208,7 +208,7 @@ export default function Home() {
             </svg>
             {/* Active indicator */}
             {followMode && (
-              <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-white" />
+              <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-blue-500 rounded-full border-2 border-white" />
             )}
           </div>
         </button>
@@ -217,48 +217,48 @@ export default function Home() {
         {filteredAlerts.length > 0 && (
           <div
             className={`
-              w-14 flex flex-col items-center gap-1 py-2 rounded-xl backdrop-blur-xl
+              w-16 flex flex-col items-center gap-1.5 py-2.5 rounded-xl backdrop-blur-xl
               ${getContainerStyles(effectiveDarkMode)}
               shadow-lg border
             `}
           >
             {alertCounts.police > 0 && (
-              <span className="flex items-center gap-1 text-sm">
-                <span className="text-lg">🚔</span>
-                <span className="font-medium">{alertCounts.police}</span>
+              <span className="flex items-center gap-1 text-base">
+                <span className="text-xl">🚔</span>
+                <span className="font-semibold">{alertCounts.police}</span>
               </span>
             )}
             {alertCounts.accidents > 0 && (
-              <span className="flex items-center gap-1 text-sm">
-                <span className="text-lg">🚨</span>
-                <span className="font-medium">{alertCounts.accidents}</span>
+              <span className="flex items-center gap-1 text-base">
+                <span className="text-xl">🚨</span>
+                <span className="font-semibold">{alertCounts.accidents}</span>
               </span>
             )}
             {alertCounts.hazards > 0 && (
-              <span className="flex items-center gap-1 text-sm">
-                <span className="text-lg">⚠️</span>
-                <span className="font-medium">{alertCounts.hazards}</span>
+              <span className="flex items-center gap-1 text-base">
+                <span className="text-xl">⚠️</span>
+                <span className="font-semibold">{alertCounts.hazards}</span>
               </span>
             )}
             {alertCounts.closures > 0 && (
-              <span className="flex items-center gap-1 text-sm">
-                <span className="text-lg">🚧</span>
-                <span className="font-medium">{alertCounts.closures}</span>
+              <span className="flex items-center gap-1 text-base">
+                <span className="text-xl">🚧</span>
+                <span className="font-semibold">{alertCounts.closures}</span>
               </span>
             )}
             {alertsLoading && (
-              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
             )}
           </div>
         )}
       </div>
 
       {/* Bottom Left - User Location + Settings */}
-      <div className="absolute bottom-6 left-4 z-30 flex items-center gap-2">
+      <div className="absolute bottom-6 left-4 z-30 flex items-center gap-3">
         {latitude && longitude && (
           <div
             className={`
-              flex items-center gap-3 px-3 py-2 rounded-xl backdrop-blur-xl
+              flex items-center gap-3 px-4 py-2.5 rounded-xl backdrop-blur-xl
               ${getContainerStyles(effectiveDarkMode)}
               shadow-lg border
             `}
@@ -266,14 +266,14 @@ export default function Home() {
             <Image
               src={effectiveDarkMode ? "/maps-avatar.jpg" : "/maps-avatar-light.jpg"}
               alt="Your location"
-              width={28}
-              height={28}
+              width={36}
+              height={36}
             />
             <div className="flex flex-col">
-              <span className={`text-[10px] uppercase tracking-wider ${effectiveDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+              <span className={`text-xs uppercase tracking-wider ${effectiveDarkMode ? "text-gray-400" : "text-gray-500"}`}>
                 Your Location
               </span>
-              <span className="text-xs font-medium">
+              <span className="text-sm font-medium">
                 {placeLoading ? "..." : (placeName || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)}
               </span>
             </div>
@@ -288,31 +288,31 @@ export default function Home() {
             posthog.capture("settings_opened");
           }}
           className={`
-            w-11 h-11 rounded-xl backdrop-blur-xl flex items-center justify-center
+            w-14 h-14 rounded-xl backdrop-blur-xl flex items-center justify-center
             ${getButtonStyles(effectiveDarkMode)}
             shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
           `}
           aria-label="Settings"
         >
-          <SettingsIcon className="w-5 h-5" />
+          <SettingsIcon className="w-6 h-6" />
         </button>
       </div>
 
       {/* Bottom Right - Control Buttons */}
-      <div className="absolute bottom-6 right-4 z-30 flex gap-2">
+      <div className="absolute bottom-6 right-4 z-30 flex gap-3">
         {/* Refocus Button - Only shows when not centered */}
         {showRefocusButton && (
           <button
             onClick={handleRecenter}
             className={`
-              px-4 h-11 rounded-xl backdrop-blur-xl flex items-center justify-center gap-2
+              px-5 h-14 rounded-xl backdrop-blur-xl flex items-center justify-center gap-2
               bg-blue-500/80 text-white border-blue-400/30
               shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
             `}
             aria-label="Recenter on location"
           >
-            <CrosshairIcon className="w-4 h-4" />
-            <span className="text-sm font-medium">Recenter</span>
+            <CrosshairIcon className="w-5 h-5" />
+            <span className="text-base font-medium">Recenter</span>
           </button>
         )}
 
@@ -320,42 +320,42 @@ export default function Home() {
         <button
           onClick={handleZoomOut}
           className={`
-            w-11 h-11 rounded-xl backdrop-blur-xl flex items-center justify-center
+            w-14 h-14 rounded-xl backdrop-blur-xl flex items-center justify-center
             ${getButtonStyles(effectiveDarkMode)}
             shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
           `}
           aria-label="Zoom out"
         >
-          <MinusIcon className="w-5 h-5" />
+          <MinusIcon className="w-6 h-6" />
         </button>
 
         {/* Zoom In */}
         <button
           onClick={handleZoomIn}
           className={`
-            w-11 h-11 rounded-xl backdrop-blur-xl flex items-center justify-center
+            w-14 h-14 rounded-xl backdrop-blur-xl flex items-center justify-center
             ${getButtonStyles(effectiveDarkMode)}
             shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
           `}
           aria-label="Zoom in"
         >
-          <PlusIcon className="w-5 h-5" />
+          <PlusIcon className="w-6 h-6" />
         </button>
 
         {/* Dark Mode Toggle */}
         <button
           onClick={toggleDarkMode}
           className={`
-            w-11 h-11 rounded-xl backdrop-blur-xl flex items-center justify-center
+            w-14 h-14 rounded-xl backdrop-blur-xl flex items-center justify-center
             ${getButtonStyles(effectiveDarkMode)}
             shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
           `}
           aria-label="Toggle dark mode"
         >
           {isDarkMode ? (
-            <SunIcon className="w-5 h-5" />
+            <SunIcon className="w-6 h-6" />
           ) : (
-            <MoonIcon className="w-5 h-5" />
+            <MoonIcon className="w-6 h-6" />
           )}
         </button>
       </div>
@@ -363,17 +363,17 @@ export default function Home() {
       {/* Loading Overlay - pointer-events-none allows buttons to remain clickable */}
       {geoLoading && !latitude && (
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm pointer-events-none" />
           <div
             className={`
-              relative px-6 py-4 rounded-2xl backdrop-blur-md
+              relative px-8 py-5 rounded-2xl backdrop-blur-md pointer-events-none
               ${effectiveDarkMode ? "bg-[#1a1a1a]/90 text-white border-white/10" : "bg-white/95 text-black border-black/5"}
               shadow-2xl border
             `}
           >
-            <div className="flex items-center gap-3">
-              <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm font-medium">Finding your location...</span>
+            <div className="flex items-center gap-4">
+              <div className="w-6 h-6 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              <span className="text-base font-medium">Finding your location...</span>
             </div>
           </div>
         </div>
@@ -381,8 +381,8 @@ export default function Home() {
 
       {/* Error Toast */}
       {geoError && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20">
-          <div className="px-4 py-2 rounded-xl bg-red-500/95 text-white text-sm font-medium shadow-lg">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="px-5 py-3 rounded-xl bg-red-500/95 text-white text-base font-medium shadow-lg">
             {geoError}
           </div>
         </div>
