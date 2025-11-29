@@ -192,6 +192,17 @@ export function SettingsModal({
                 <div className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
                   Navigation with Waze alerts for Tesla
                 </div>
+                <div className={`text-sm mt-2 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                  Made by{" "}
+                  <a 
+                    href="https://x.com/ryanvogel" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-500 hover:underline"
+                  >
+                    Ryan Vogel
+                  </a>
+                </div>
               </div>
             </div>
           </div>
