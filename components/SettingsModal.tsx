@@ -18,6 +18,11 @@ interface SettingsModalProps {
   onToggleSatellite: (value: boolean) => void;
   showAvatarPulse: boolean;
   onToggleAvatarPulse: (value: boolean) => void;
+  // Police alert settings
+  policeAlertDistance: number;
+  onPoliceAlertDistanceChange: (value: number) => void;
+  policeAlertSound: boolean;
+  onTogglePoliceAlertSound: (value: boolean) => void;
 }
 
 export function SettingsModal({
@@ -34,6 +39,10 @@ export function SettingsModal({
   onToggleSatellite,
   showAvatarPulse,
   onToggleAvatarPulse,
+  policeAlertDistance,
+  onPoliceAlertDistanceChange,
+  policeAlertSound,
+  onTogglePoliceAlertSound,
 }: SettingsModalProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
@@ -232,6 +241,88 @@ export function SettingsModal({
                       // Track traffic layer toggle
                       posthog.capture("traffic_layer_toggled", {
                         traffic_enabled: value,
+                      });
+                    }}
+                    isDarkMode={isDarkMode}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Police Alerts Section */}
+            <div>
+              <h3 className={`text-base font-medium uppercase tracking-wider mb-4 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                Police Alerts
+              </h3>
+              
+              <div className="space-y-4">
+                {/* Alert Distance Selector */}
+                <div className={`
+                  p-5 rounded-xl
+                  ${isDarkMode ? "bg-white/5" : "bg-black/5"}
+                `}>
+                  <div className="flex items-center gap-4 mb-4">
+                    <ShieldExclamationIcon className="w-8 h-8 text-blue-500" />
+                    <div>
+                      <div className="text-lg font-medium">Alert Distance</div>
+                      <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                        Get notified when police are within this distance
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      { value: 0, label: "Off" },
+                      { value: 500, label: "500m" },
+                      { value: 1000, label: "1 km" },
+                      { value: 1500, label: "1.5 km" },
+                      { value: 2000, label: "2 km" },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => {
+                          onPoliceAlertDistanceChange(option.value);
+                          posthog.capture("police_alert_distance_changed", {
+                            distance_meters: option.value,
+                          });
+                        }}
+                        className={`
+                          px-4 py-2.5 rounded-xl text-base font-medium transition-all
+                          ${policeAlertDistance === option.value
+                            ? "bg-blue-500 text-white"
+                            : isDarkMode 
+                              ? "bg-white/10 hover:bg-white/20 text-white" 
+                              : "bg-black/10 hover:bg-black/20 text-black"
+                          }
+                        `}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sound Alert Toggle */}
+                <div className={`
+                  flex items-center justify-between p-5 rounded-xl
+                  ${isDarkMode ? "bg-white/5" : "bg-black/5"}
+                  ${policeAlertDistance === 0 ? "opacity-50 pointer-events-none" : ""}
+                `}>
+                  <div className="flex items-center gap-4">
+                    <span className="text-3xl">🔊</span>
+                    <div>
+                      <div className="text-lg font-medium">Sound Alert</div>
+                      <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                        Play audio when police are nearby
+                      </div>
+                    </div>
+                  </div>
+                  <Toggle
+                    enabled={policeAlertSound}
+                    onToggle={(value) => {
+                      onTogglePoliceAlertSound(value);
+                      posthog.capture("police_alert_sound_toggled", {
+                        sound_enabled: value,
                       });
                     }}
                     isDarkMode={isDarkMode}

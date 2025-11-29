@@ -31,10 +31,14 @@ interface MapProps {
   showTraffic?: boolean;
   useSatellite?: boolean;
   showAvatarPulse?: boolean;
+  // Dev mode - show alert radius ring
+  showAlertRadius?: boolean;
+  alertRadiusMeters?: number;
 }
 
 export interface MapRef {
   recenter: (lng: number, lat: number) => void;
+  enableAutoCentering: () => void;
   setFollowMode: (enabled: boolean) => void;
   resetNorth: () => void;
   zoomIn: () => void;
@@ -188,6 +192,8 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     showTraffic = false,
     useSatellite = false,
     showAvatarPulse = true,
+    showAlertRadius = false,
+    alertRadiusMeters = 500,
   },
   ref
 ) {
@@ -207,6 +213,9 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   const userInteractingRef = useRef(false);
   const isZoomingRef = useRef(false);
   
+  // Track showTraffic prop for use in callbacks (closure-safe)
+  const showTrafficPropRef = useRef(showTraffic);
+  
   // Long press handling
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -221,9 +230,9 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   const targetHeadingRef = useRef<number>(0);
   
   // Animation speed config
-  const POSITION_LERP_SPEED = 0.1; // How fast to interpolate position (0-1, higher = faster)
+  const POSITION_LERP_SPEED = 0.15; // How fast to interpolate position (0-1, higher = faster)
   const HEADING_LERP_SPEED = 0.15; // How fast to interpolate heading
-  const CAMERA_FOLLOW_SPEED = 0.08; // How fast camera follows
+  const CAMERA_FOLLOW_SPEED = 0.12; // How fast camera follows (increased for snappier tracking)
 
   // Update follow mode ref when prop changes
   useEffect(() => {
@@ -256,6 +265,12 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         duration: 800,
         essential: true,
       });
+    },
+    enableAutoCentering: () => {
+      // Just enable auto-centering without any animation
+      // The normal position updates will handle centering
+      isAutoCentering.current = true;
+      onCenteredChange?.(true);
     },
     setFollowMode: (enabled: boolean) => {
       isFollowMode.current = enabled;
@@ -424,6 +439,54 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
           });
         }
       }
+
+      // Add traffic layer immediately on load if enabled
+      // This is the most reliable place because we KNOW the style is fully loaded
+      // Use ref to get current value (not the stale closure value)
+      const addInitialTraffic = () => {
+        if (!map.current || !showTrafficPropRef.current) return;
+        try {
+          if (!map.current.getSource("mapbox-traffic")) {
+            map.current.addSource("mapbox-traffic", {
+              type: "vector",
+              url: "mapbox://mapbox.mapbox-traffic-v1",
+            });
+          }
+          if (!map.current.getLayer("traffic-layer")) {
+            map.current.addLayer({
+              id: "traffic-layer",
+              type: "line",
+              source: "mapbox-traffic",
+              "source-layer": "traffic",
+              filter: [
+                "in",
+                ["get", "congestion"],
+                ["literal", ["moderate", "heavy", "severe"]]
+              ],
+              paint: {
+                "line-width": 3,
+                "line-color": [
+                  "match",
+                  ["get", "congestion"],
+                  "moderate", "#facc15",
+                  "heavy", "#f97316",
+                  "severe", "#ef4444",
+                  "#f97316"
+                ],
+                "line-opacity": 0.85,
+              },
+            });
+          }
+        } catch (e) {
+          console.log("Error adding initial traffic layer:", e);
+        }
+      };
+      
+      // Try immediately
+      addInitialTraffic();
+      
+      // Also try after a short delay as fallback (handles edge cases with ref timing)
+      setTimeout(addInitialTraffic, 200);
     });
 
     // Detect when user starts interacting (pan/drag)
@@ -622,6 +685,9 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     }
   }, [userLocation]);
 
+  // Track initial style to avoid unnecessary setStyle calls
+  const initialStyleRef = useRef<string | null>(null);
+
   // Update map style when dark mode or satellite mode changes
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
@@ -636,96 +702,183 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         : "mapbox://styles/mapbox/light-v11";
     }
 
-    map.current.setStyle(currentStyle);
-    
-    // Hide labels after style loads
-    map.current.once("style.load", () => {
-      if (map.current) {
+    // Skip setStyle if this is the initial load and style hasn't changed
+    // This prevents an unnecessary style reload that causes timing issues
+    if (initialStyleRef.current === null) {
+      initialStyleRef.current = currentStyle;
+      // Initial style was set in the constructor, just hide labels
+      if (map.current.isStyleLoaded()) {
         hidePlaceLabels(map.current);
+      } else {
+        map.current.once("style.load", () => {
+          if (map.current) {
+            hidePlaceLabels(map.current);
+          }
+        });
       }
-    });
+      return;
+    }
+
+    // Only call setStyle if the style actually changed
+    if (currentStyle !== initialStyleRef.current) {
+      initialStyleRef.current = currentStyle;
+      map.current.setStyle(currentStyle);
+      
+      // Hide labels after style loads
+      map.current.once("style.load", () => {
+        if (map.current) {
+          hidePlaceLabels(map.current);
+        }
+      });
+    }
   }, [isDarkMode, mapLoaded, useSatellite]);
 
-  // Toggle traffic layer
+  // Track showTraffic in a ref so style.load handler always has current value
+  const showTrafficRef = useRef(showTraffic);
+  useEffect(() => {
+    showTrafficRef.current = showTraffic;
+    showTrafficPropRef.current = showTraffic;
+  }, [showTraffic]);
+
+  // Set up persistent style.load listener for traffic layer (runs once when map loads)
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
 
     const mapInstance = map.current;
 
     const addTrafficLayer = () => {
-      // Safety check - make sure style is loaded and map still exists
       if (!mapInstance.isStyleLoaded()) return;
       
-      // Check if source already exists
-      if (!mapInstance.getSource("mapbox-traffic")) {
-        mapInstance.addSource("mapbox-traffic", {
-          type: "vector",
-          url: "mapbox://mapbox.mapbox-traffic-v1",
-        });
-      }
+      try {
+        if (!mapInstance.getSource("mapbox-traffic")) {
+          mapInstance.addSource("mapbox-traffic", {
+            type: "vector",
+            url: "mapbox://mapbox.mapbox-traffic-v1",
+          });
+        }
 
-      // Add traffic layer if it doesn't exist
-      // Only show congested sections (moderate, heavy, severe) - no green/low traffic
-      if (!mapInstance.getLayer("traffic-layer")) {
-        mapInstance.addLayer({
-          id: "traffic-layer",
-          type: "line",
-          source: "mapbox-traffic",
-          "source-layer": "traffic",
-          filter: [
-            "in",
-            ["get", "congestion"],
-            ["literal", ["moderate", "heavy", "severe"]]
-          ],
-          paint: {
-            "line-width": 3,
-            "line-color": [
-              "match",
+        if (!mapInstance.getLayer("traffic-layer")) {
+          mapInstance.addLayer({
+            id: "traffic-layer",
+            type: "line",
+            source: "mapbox-traffic",
+            "source-layer": "traffic",
+            filter: [
+              "in",
               ["get", "congestion"],
-              "moderate", "#facc15", 
-              "heavy", "#f97316",
-              "severe", "#ef4444",
-              "#f97316"
+              ["literal", ["moderate", "heavy", "severe"]]
             ],
-            "line-opacity": 0.85,
-          },
-        });
-      }
-    };
-
-    const removeTrafficLayer = () => {
-      if (mapInstance.getLayer("traffic-layer")) {
-        mapInstance.removeLayer("traffic-layer");
-      }
-      if (mapInstance.getSource("mapbox-traffic")) {
-        mapInstance.removeSource("mapbox-traffic");
+            paint: {
+              "line-width": 3,
+              "line-color": [
+                "match",
+                ["get", "congestion"],
+                "moderate", "#facc15", 
+                "heavy", "#f97316",
+                "severe", "#ef4444",
+                "#f97316"
+              ],
+              "line-opacity": 0.85,
+            },
+          });
+        }
+      } catch (e) {
+        console.log("Error adding traffic layer:", e);
       }
     };
 
     // Handler for when style loads/changes - re-add traffic if enabled
     const handleStyleLoad = () => {
-      if (showTraffic) {
-        addTrafficLayer();
+      if (showTrafficRef.current) {
+        // Small delay to ensure style is fully ready
+        setTimeout(() => addTrafficLayer(), 100);
       }
     };
 
-    if (showTraffic) {
-      // Wait for style to be loaded before adding layer
-      if (mapInstance.isStyleLoaded()) {
-        addTrafficLayer();
-      }
-      // Also listen for future style changes to re-add the layer
-      mapInstance.on("style.load", handleStyleLoad);
-    } else {
-      if (mapInstance.isStyleLoaded()) {
-        removeTrafficLayer();
-      }
+    // Listen for all style changes
+    mapInstance.on("style.load", handleStyleLoad);
+
+    // IMPORTANT: Also add traffic now if style is already loaded and traffic is enabled
+    // This handles the initial load case where style.load may have already fired
+    if (showTrafficRef.current && mapInstance.isStyleLoaded()) {
+      addTrafficLayer();
     }
 
     return () => {
       mapInstance.off("style.load", handleStyleLoad);
     };
-  }, [showTraffic, mapLoaded, isDarkMode, useSatellite]);
+  }, [mapLoaded]);
+
+  // Toggle traffic layer on/off based on showTraffic prop
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    const mapInstance = map.current;
+
+    const addTrafficLayer = () => {
+      if (!mapInstance.isStyleLoaded()) return;
+      
+      try {
+        if (!mapInstance.getSource("mapbox-traffic")) {
+          mapInstance.addSource("mapbox-traffic", {
+            type: "vector",
+            url: "mapbox://mapbox.mapbox-traffic-v1",
+          });
+        }
+
+        if (!mapInstance.getLayer("traffic-layer")) {
+          mapInstance.addLayer({
+            id: "traffic-layer",
+            type: "line",
+            source: "mapbox-traffic",
+            "source-layer": "traffic",
+            filter: [
+              "in",
+              ["get", "congestion"],
+              ["literal", ["moderate", "heavy", "severe"]]
+            ],
+            paint: {
+              "line-width": 3,
+              "line-color": [
+                "match",
+                ["get", "congestion"],
+                "moderate", "#facc15", 
+                "heavy", "#f97316",
+                "severe", "#ef4444",
+                "#f97316"
+              ],
+              "line-opacity": 0.85,
+            },
+          });
+        }
+      } catch (e) {
+        console.log("Error adding traffic layer:", e);
+      }
+    };
+
+    const removeTrafficLayer = () => {
+      try {
+        if (mapInstance.getLayer("traffic-layer")) {
+          mapInstance.removeLayer("traffic-layer");
+        }
+        if (mapInstance.getSource("mapbox-traffic")) {
+          mapInstance.removeSource("mapbox-traffic");
+        }
+      } catch (e) {
+        console.log("Error removing traffic layer:", e);
+      }
+    };
+
+    if (showTraffic) {
+      if (mapInstance.isStyleLoaded()) {
+        addTrafficLayer();
+      }
+    } else {
+      if (mapInstance.isStyleLoaded()) {
+        removeTrafficLayer();
+      }
+    }
+  }, [showTraffic, mapLoaded]);
 
   // Create/update user location marker
   useEffect(() => {
@@ -791,6 +944,136 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       existingPulse.remove();
     }
   }, [showAvatarPulse]);
+
+  // Alert radius circle (dev mode)
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    const mapInstance = map.current;
+    const sourceId = "alert-radius-source";
+    const layerId = "alert-radius-layer";
+    const outlineLayerId = "alert-radius-outline";
+
+    // Helper to create circle polygon from center point and radius in meters
+    const createCirclePolygon = (lng: number, lat: number, radiusMeters: number, points = 64) => {
+      const coords = [];
+      const earthRadius = 6371000; // meters
+      const latRad = (lat * Math.PI) / 180;
+      
+      for (let i = 0; i <= points; i++) {
+        const angle = (i / points) * 2 * Math.PI;
+        const dx = radiusMeters * Math.cos(angle);
+        const dy = radiusMeters * Math.sin(angle);
+        
+        const newLat = lat + (dy / earthRadius) * (180 / Math.PI);
+        const newLng = lng + (dx / (earthRadius * Math.cos(latRad))) * (180 / Math.PI);
+        
+        coords.push([newLng, newLat]);
+      }
+      
+      return {
+        type: "Feature" as const,
+        geometry: {
+          type: "Polygon" as const,
+          coordinates: [coords],
+        },
+        properties: {},
+      };
+    };
+
+    // Remove existing layers and source if they exist
+    const removeExisting = () => {
+      if (mapInstance.getLayer(outlineLayerId)) {
+        mapInstance.removeLayer(outlineLayerId);
+      }
+      if (mapInstance.getLayer(layerId)) {
+        mapInstance.removeLayer(layerId);
+      }
+      if (mapInstance.getSource(sourceId)) {
+        mapInstance.removeSource(sourceId);
+      }
+    };
+
+    // If not showing or no user location, remove and return
+    if (!showAlertRadius || !userLocation || alertRadiusMeters === 0) {
+      removeExisting();
+      return;
+    }
+
+    const circleData = createCirclePolygon(
+      userLocation.longitude,
+      userLocation.latitude,
+      alertRadiusMeters
+    );
+
+    // Check if source exists
+    const existingSource = mapInstance.getSource(sourceId) as mapboxgl.GeoJSONSource;
+    
+    if (existingSource) {
+      // Update existing source
+      existingSource.setData({
+        type: "FeatureCollection",
+        features: [circleData],
+      });
+    } else {
+      // Create new source and layers
+      mapInstance.addSource(sourceId, {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: [circleData],
+        },
+      });
+
+      // Add fill layer (semi-transparent)
+      mapInstance.addLayer({
+        id: layerId,
+        type: "fill",
+        source: sourceId,
+        paint: {
+          "fill-color": "#3b82f6",
+          "fill-opacity": 0.1,
+        },
+      });
+
+      // Add outline layer (dashed)
+      mapInstance.addLayer({
+        id: outlineLayerId,
+        type: "line",
+        source: sourceId,
+        paint: {
+          "line-color": "#3b82f6",
+          "line-width": 2,
+          "line-dasharray": [4, 4],
+          "line-opacity": 0.6,
+        },
+      });
+    }
+
+    // Cleanup on unmount
+    return () => {
+      // Don't remove on every re-render, only when actually unmounting
+    };
+  }, [showAlertRadius, alertRadiusMeters, userLocation, mapLoaded]);
+
+  // Cleanup alert radius on unmount or when disabled
+  useEffect(() => {
+    return () => {
+      if (!map.current) return;
+      const mapInstance = map.current;
+      const sourceId = "alert-radius-source";
+      const layerId = "alert-radius-layer";
+      const outlineLayerId = "alert-radius-outline";
+      
+      try {
+        if (mapInstance.getLayer(outlineLayerId)) mapInstance.removeLayer(outlineLayerId);
+        if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId);
+        if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId);
+      } catch {
+        // Ignore errors during cleanup
+      }
+    };
+  }, []);
 
   // Update alert markers with clustering
   useEffect(() => {

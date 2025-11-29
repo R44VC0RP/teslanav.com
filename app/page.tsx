@@ -69,8 +69,31 @@ export default function Home() {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(false);
   const [dismissedMobileWarning, setDismissedMobileWarning] = useState(false);
+  
+  // Police alert settings
+  const [policeAlertDistance, setPoliceAlertDistance] = useState(500); // meters, 0 = off
+  const [policeAlertSound, setPoliceAlertSound] = useState(false); // off by default
+  const [policeAlertToast, setPoliceAlertToast] = useState<{ show: boolean; expanding: boolean } | null>(null);
+  const alertedPoliceIdsRef = useRef<Set<string>>(new Set());
+  const alertAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastAlertTimeRef = useRef<number>(0);
+  const ALERT_COOLDOWN_MS = 5000; // 5 seconds between alerts
+  // Track if we've done initial warmup (prevents alerts on page load for existing nearby hazards)
+  const alertWarmupDoneRef = useRef(false);
 
-  const { latitude, longitude, heading, effectiveHeading, loading: geoLoading, error: geoError } = useGeolocation();
+  // Dev mode - route simulation
+  const [isDevMode, setIsDevMode] = useState(false);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [simulatedPosition, setSimulatedPosition] = useState<{ lat: number; lng: number; heading: number } | null>(null);
+  const simulationIndexRef = useRef(0);
+  const simulationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const { latitude: realLatitude, longitude: realLongitude, heading, effectiveHeading: realEffectiveHeading, loading: geoLoading, error: geoError } = useGeolocation();
+  
+  // Use simulated position if simulating, otherwise use real position
+  const latitude = isSimulating && simulatedPosition ? simulatedPosition.lat : realLatitude;
+  const longitude = isSimulating && simulatedPosition ? simulatedPosition.lng : realLongitude;
+  const effectiveHeading = isSimulating && simulatedPosition ? simulatedPosition.heading : realEffectiveHeading;
   const { alerts, loading: alertsLoading } = useWazeAlerts({ bounds });
   const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
   const { placeName, loading: placeLoading } = useReverseGeocode(latitude, longitude);
@@ -238,24 +261,26 @@ export default function Home() {
     }
   }, []);
 
-  // Navigate to long-pressed location (direct navigation since user already confirmed)
+  // Select long-pressed location for preview (same flow as search)
   const handleNavigateToContextMenu = useCallback(() => {
     if (contextMenu) {
       const name = contextMenu.placeName || `${contextMenu.lat.toFixed(4)}, ${contextMenu.lng.toFixed(4)}`;
       
-      // Direct navigation - set destination and fetch route immediately
-      setDestination({ lng: contextMenu.lng, lat: contextMenu.lat, name });
+      // Set as preview location (user can then choose to navigate)
+      setPreviewLocation({ lng: contextMenu.lng, lat: contextMenu.lat, name });
       setContextMenu(null);
-      setPreviewLocation(null); // Clear any preview
-      lastRouteOriginRef.current = null;
-      fetchRoute(contextMenu.lng, contextMenu.lat);
       
-      posthog.capture("navigate_from_long_press", {
+      // Center map on the selected location
+      if (mapRef.current) {
+        mapRef.current.recenter(contextMenu.lng, contextMenu.lat);
+      }
+      
+      posthog.capture("location_selected_from_long_press", {
         place_name: name,
         coordinates: { lng: contextMenu.lng, lat: contextMenu.lat },
       });
     }
-  }, [contextMenu, fetchRoute]);
+  }, [contextMenu]);
 
   // Close context menu
   const handleCloseContextMenu = useCallback(() => {
@@ -273,6 +298,18 @@ export default function Home() {
       if (savedTraffic !== null) {
         setShowTraffic(savedTraffic === "true");
       }
+      // Load police alert settings
+      const savedPoliceDistance = localStorage.getItem("teslanav-police-distance");
+      if (savedPoliceDistance !== null) {
+        setPoliceAlertDistance(parseInt(savedPoliceDistance, 10));
+      }
+      const savedPoliceSound = localStorage.getItem("teslanav-police-sound");
+      if (savedPoliceSound !== null) {
+        setPoliceAlertSound(savedPoliceSound === "true");
+      }
+      
+      // Initialize audio element
+      alertAudioRef.current = new Audio("/alert-sound.mp3");
     }
   }, []);
 
@@ -298,6 +335,14 @@ export default function Home() {
     }
   }, []);
 
+  // Detect dev mode from URL parameter
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      setIsDevMode(params.get("dev") === "true");
+    }
+  }, []);
+
   // Save satellite preference to localStorage
   const handleToggleSatellite = useCallback((value: boolean) => {
     setUseSatellite(value);
@@ -313,6 +358,227 @@ export default function Home() {
       localStorage.setItem("teslanav-traffic", value.toString());
     }
   }, []);
+
+  // Save police alert distance to localStorage
+  const handlePoliceAlertDistanceChange = useCallback((value: number) => {
+    setPoliceAlertDistance(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("teslanav-police-distance", value.toString());
+    }
+    // Clear alerted IDs when changing distance so alerts can re-trigger
+    alertedPoliceIdsRef.current.clear();
+  }, []);
+
+  // Save police alert sound preference to localStorage
+  const handleTogglePoliceAlertSound = useCallback((value: boolean) => {
+    setPoliceAlertSound(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("teslanav-police-sound", value.toString());
+    }
+  }, []);
+
+  // Calculate bearing between two points
+  const calculateBearing = useCallback((lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const toDeg = (rad: number) => (rad * 180) / Math.PI;
+    const dLng = toRad(lng2 - lng1);
+    const lat1Rad = toRad(lat1);
+    const lat2Rad = toRad(lat2);
+    const y = Math.sin(dLng) * Math.cos(lat2Rad);
+    const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLng);
+    let bearing = toDeg(Math.atan2(y, x));
+    return (bearing + 360) % 360;
+  }, []);
+
+  // Start route simulation (dev mode only)
+  const startSimulation = useCallback(() => {
+    if (!route || !route.geometry.coordinates.length) return;
+    
+    // Reset simulation state
+    simulationIndexRef.current = 0;
+    setIsSimulating(true);
+    
+    // Clear any alerted police so they can re-trigger during simulation
+    alertedPoliceIdsRef.current.clear();
+    // Reset warmup so nearby alerts at sim start are silently marked as seen
+    alertWarmupDoneRef.current = false;
+    // Also reset the cooldown
+    lastAlertTimeRef.current = 0;
+    
+    const coordinates = route.geometry.coordinates;
+    const SIMULATION_SPEED = 200; // ms between position updates
+    
+    // Start at the first coordinate
+    const [startLng, startLat] = coordinates[0];
+    const nextCoord = coordinates[1] || coordinates[0];
+    const initialHeading = calculateBearing(startLat, startLng, nextCoord[1], nextCoord[0]);
+    setSimulatedPosition({ lat: startLat, lng: startLng, heading: initialHeading });
+    
+    // Enable auto-centering so the map follows the simulation
+    // Use enableAutoCentering instead of recenter to avoid flyTo animation conflicts
+    if (mapRef.current) {
+      mapRef.current.enableAutoCentering();
+    }
+    
+    simulationIntervalRef.current = setInterval(() => {
+      simulationIndexRef.current += 1;
+      const index = simulationIndexRef.current;
+      
+      if (index >= coordinates.length) {
+        // End of route
+        stopSimulation();
+        return;
+      }
+      
+      const [lng, lat] = coordinates[index];
+      const nextCoord = coordinates[index + 1] || coordinates[index];
+      const heading = calculateBearing(lat, lng, nextCoord[1], nextCoord[0]);
+      
+      setSimulatedPosition({ lat, lng, heading });
+    }, SIMULATION_SPEED);
+    
+    posthog.capture("dev_simulation_started");
+  }, [route, calculateBearing]);
+
+  // Stop route simulation
+  const stopSimulation = useCallback(() => {
+    if (simulationIntervalRef.current) {
+      clearInterval(simulationIntervalRef.current);
+      simulationIntervalRef.current = null;
+    }
+    setIsSimulating(false);
+    setSimulatedPosition(null);
+    simulationIndexRef.current = 0;
+    
+    // Recenter on real position when stopping
+    if (realLatitude && realLongitude && mapRef.current) {
+      mapRef.current.recenter(realLongitude, realLatitude);
+    }
+    
+    posthog.capture("dev_simulation_stopped");
+  }, [realLatitude, realLongitude]);
+
+  // Cleanup simulation on unmount
+  useEffect(() => {
+    return () => {
+      if (simulationIntervalRef.current) {
+        clearInterval(simulationIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Check if an alert is ahead of us (within ±90° of our heading)
+  const isAlertAhead = useCallback((alertLat: number, alertLng: number, userHeading: number | null): boolean => {
+    // If no heading available, assume it's ahead (better to alert than miss)
+    if (userHeading === null) return true;
+    
+    // Calculate bearing from user to alert
+    const bearingToAlert = calculateBearing(latitude!, longitude!, alertLat, alertLng);
+    
+    // Calculate the angle difference between heading and bearing to alert
+    let angleDiff = bearingToAlert - userHeading;
+    
+    // Normalize to -180 to 180 range
+    while (angleDiff > 180) angleDiff -= 360;
+    while (angleDiff < -180) angleDiff += 360;
+    
+    // Alert is "ahead" if within ±90° of our heading
+    return Math.abs(angleDiff) <= 90;
+  }, [latitude, longitude, calculateBearing]);
+
+  // Police proximity detection
+  useEffect(() => {
+    if (!latitude || !longitude || policeAlertDistance === 0 || !showWazeAlerts) return;
+
+    // Filter for police alerts
+    const policeAlerts = alerts.filter(alert => alert.type === "POLICE");
+    
+    // Skip if no alerts to process
+    if (policeAlerts.length === 0) return;
+
+    // On initial load, silently mark all nearby alerts as "seen" without triggering
+    // This prevents annoying alerts when you first open the page with hazards already nearby
+    if (!alertWarmupDoneRef.current) {
+      for (const alert of policeAlerts) {
+        const distance = getDistanceInMeters(
+          latitude,
+          longitude,
+          alert.location.y,
+          alert.location.x
+        );
+        
+        if (distance <= policeAlertDistance) {
+          // Silently mark as seen (no alert triggered)
+          alertedPoliceIdsRef.current.add(alert.uuid);
+        }
+      }
+      alertWarmupDoneRef.current = true;
+      return; // Skip normal alert processing on first pass
+    }
+
+    // Check if we're still in cooldown period
+    const now = Date.now();
+    if (now - lastAlertTimeRef.current < ALERT_COOLDOWN_MS) {
+      return; // Still in cooldown, don't trigger any new alerts
+    }
+    
+    // Check each police alert for proximity
+    for (const alert of policeAlerts) {
+      // Skip if we already alerted for this one
+      if (alertedPoliceIdsRef.current.has(alert.uuid)) continue;
+      
+      const distance = getDistanceInMeters(
+        latitude,
+        longitude,
+        alert.location.y, // lat
+        alert.location.x  // lng
+      );
+      
+      if (distance <= policeAlertDistance) {
+        // Only alert if the police is AHEAD of us, not behind
+        if (!isAlertAhead(alert.location.y, alert.location.x, effectiveHeading)) {
+          // Mark as "seen" so we don't keep checking it, but don't alert
+          alertedPoliceIdsRef.current.add(alert.uuid);
+          continue;
+        }
+        
+        // Mark as alerted and set cooldown
+        alertedPoliceIdsRef.current.add(alert.uuid);
+        lastAlertTimeRef.current = now;
+        
+        // Show toast notification
+        setPoliceAlertToast({ show: true, expanding: false });
+        
+        // Start expansion animation after a brief moment
+        setTimeout(() => {
+          setPoliceAlertToast({ show: true, expanding: true });
+        }, 50);
+        
+        // Play sound if enabled
+        if (policeAlertSound && alertAudioRef.current) {
+          alertAudioRef.current.currentTime = 0;
+          alertAudioRef.current.play().catch(err => {
+            console.log("Audio play failed:", err);
+          });
+        }
+        
+        // Track the alert
+        posthog.capture("police_alert_triggered", {
+          distance_meters: Math.round(distance),
+          alert_distance_setting: policeAlertDistance,
+          sound_enabled: policeAlertSound,
+        });
+        
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+          setPoliceAlertToast(null);
+        }, 5000);
+        
+        // Only show one alert at a time
+        break;
+      }
+    }
+  }, [latitude, longitude, alerts, policeAlertDistance, policeAlertSound, showWazeAlerts, getDistanceInMeters, effectiveHeading, isAlertAhead]);
 
   // Check system dark mode preference
   useEffect(() => {
@@ -439,6 +705,8 @@ export default function Home() {
         showTraffic={showTraffic}
         useSatellite={useSatellite}
         showAvatarPulse={showAvatarPulse}
+        showAlertRadius={isDevMode && policeAlertDistance > 0}
+        alertRadiusMeters={policeAlertDistance}
       />
 
       {/* Context Menu - Shows on long press */}
@@ -502,7 +770,7 @@ export default function Home() {
                   `}
                 >
                   <NavigateToIcon className={`w-5 h-5 ${effectiveDarkMode ? "text-blue-400" : "text-blue-500"}`} />
-                  <span className="font-medium">Navigate here</span>
+                  <span className="font-medium">Select location</span>
                 </button>
                 <button
                   onClick={handleCloseContextMenu}
@@ -780,6 +1048,41 @@ export default function Home() {
 
       {/* Bottom Right - Control Buttons */}
       <div className="absolute bottom-6 right-4 z-30 flex gap-3">
+        {/* Dev Mode Badge */}
+        {isDevMode && !route && (
+          <div className="px-4 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center bg-purple-500/80 text-white border-purple-400/30 shadow-lg border">
+            <span className="text-sm font-bold uppercase tracking-wider">Dev Mode</span>
+          </div>
+        )}
+
+        {/* Dev Mode - Simulation Controls */}
+        {isDevMode && route && (
+          <button
+            onClick={isSimulating ? stopSimulation : startSimulation}
+            className={`
+              px-6 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center gap-2
+              ${isSimulating 
+                ? "bg-red-500/80 text-white border-red-400/30" 
+                : "bg-green-500/80 text-white border-green-400/30"
+              }
+              shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
+            `}
+            aria-label={isSimulating ? "Stop simulation" : "Start simulation"}
+          >
+            {isSimulating ? (
+              <>
+                <StopIcon className="w-6 h-6" />
+                <span className="text-lg font-medium">Stop</span>
+              </>
+            ) : (
+              <>
+                <PlayIcon className="w-6 h-6" />
+                <span className="text-lg font-medium">Simulate</span>
+              </>
+            )}
+          </button>
+        )}
+
         {/* Refocus Button - Only shows when not centered */}
         {showRefocusButton && (
           <button
@@ -868,6 +1171,42 @@ export default function Home() {
         </div>
       )}
 
+      {/* Police Alert Toast */}
+      {policeAlertToast?.show && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+          <div
+            className={`
+              flex items-center gap-3 bg-blue-500 text-white shadow-2xl
+              transition-all duration-500 ease-out overflow-hidden
+              ${policeAlertToast.expanding 
+                ? "px-6 py-4 rounded-2xl min-w-[280px] opacity-100" 
+                : "w-14 h-14 rounded-full justify-center opacity-90"
+              }
+            `}
+          >
+            {/* Police icon - always visible */}
+            <div className={`
+              flex-shrink-0 transition-all duration-300
+              ${policeAlertToast.expanding ? "" : "scale-110"}
+            `}>
+              <PoliceAlertIcon className="w-7 h-7" />
+            </div>
+            
+            {/* Text - only visible when expanded */}
+            <div className={`
+              flex flex-col transition-all duration-300 delay-150
+              ${policeAlertToast.expanding ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 absolute"}
+            `}>
+              <span className="text-lg font-bold">Police Ahead</span>
+              <span className="text-sm text-blue-100">Slow down and stay alert</span>
+            </div>
+            
+            {/* Pulse ring animation */}
+            <div className="absolute inset-0 rounded-2xl border-2 border-white/30 animate-ping" />
+          </div>
+        </div>
+      )}
+
       {/* Settings Modal */}
       <SettingsModal
         isOpen={showSettings}
@@ -883,6 +1222,10 @@ export default function Home() {
         onToggleSatellite={handleToggleSatellite}
         showAvatarPulse={showAvatarPulse}
         onToggleAvatarPulse={setShowAvatarPulse}
+        policeAlertDistance={policeAlertDistance}
+        onPoliceAlertDistanceChange={handlePoliceAlertDistanceChange}
+        policeAlertSound={policeAlertSound}
+        onTogglePoliceAlertSound={handleTogglePoliceAlertSound}
       />
 
       {/* Hide Mapbox attribution */}
@@ -1030,6 +1373,30 @@ function ClockIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
+function PoliceAlertIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+    </svg>
+  );
+}
+
+function PlayIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M8 5v14l11-7z"/>
+    </svg>
+  );
+}
+
+function StopIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M6 6h12v12H6z"/>
     </svg>
   );
 }
