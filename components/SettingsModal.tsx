@@ -1,5 +1,7 @@
 "use client";
 
+import posthog from "posthog-js";
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -53,7 +55,11 @@ export function SettingsModal({
         `}>
           <h2 className="text-xl font-semibold">Settings</h2>
           <button
-            onClick={onClose}
+            onClick={() => {
+              onClose();
+              // Track settings closed event
+              posthog.capture("settings_closed");
+            }}
             className={`
               w-10 h-10 rounded-xl flex items-center justify-center
               ${isDarkMode ? "hover:bg-white/10" : "hover:bg-black/5"}
@@ -89,9 +95,15 @@ export function SettingsModal({
                       </div>
                     </div>
                   </div>
-                  <Toggle 
-                    enabled={useSatellite} 
-                    onToggle={onToggleSatellite}
+                  <Toggle
+                    enabled={useSatellite}
+                    onToggle={(value) => {
+                      onToggleSatellite(value);
+                      // Track satellite view toggle
+                      posthog.capture("satellite_view_toggled", {
+                        satellite_enabled: value,
+                      });
+                    }}
                     isDarkMode={isDarkMode}
                   />
                 </div>
@@ -119,9 +131,15 @@ export function SettingsModal({
                       </div>
                     </div>
                   </div>
-                  <Toggle 
-                    enabled={showWazeAlerts} 
-                    onToggle={onToggleWazeAlerts}
+                  <Toggle
+                    enabled={showWazeAlerts}
+                    onToggle={(value) => {
+                      onToggleWazeAlerts(value);
+                      // Track Waze alerts toggle
+                      posthog.capture("waze_alerts_toggled", {
+                        alerts_enabled: value,
+                      });
+                    }}
                     isDarkMode={isDarkMode}
                   />
                 </div>
@@ -140,9 +158,15 @@ export function SettingsModal({
                       </div>
                     </div>
                   </div>
-                  <Toggle 
-                    enabled={showTraffic} 
-                    onToggle={onToggleTraffic}
+                  <Toggle
+                    enabled={showTraffic}
+                    onToggle={(value) => {
+                      onToggleTraffic(value);
+                      // Track traffic layer toggle
+                      posthog.capture("traffic_layer_toggled", {
+                        traffic_enabled: value,
+                      });
+                    }}
                     isDarkMode={isDarkMode}
                   />
                 </div>
@@ -170,9 +194,15 @@ export function SettingsModal({
                       </div>
                     </div>
                   </div>
-                  <Toggle 
-                    enabled={showAvatarPulse} 
-                    onToggle={onToggleAvatarPulse}
+                  <Toggle
+                    enabled={showAvatarPulse}
+                    onToggle={(value) => {
+                      onToggleAvatarPulse(value);
+                      // Track avatar pulse toggle
+                      posthog.capture("avatar_pulse_toggled", {
+                        pulse_enabled: value,
+                      });
+                    }}
                     isDarkMode={isDarkMode}
                   />
                 </div>

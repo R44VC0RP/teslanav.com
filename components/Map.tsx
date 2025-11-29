@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallba
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { WazeAlert, MapBounds } from "@/types/waze";
+import posthog from "posthog-js";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 
@@ -761,6 +762,19 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       el.addEventListener("mouseleave", () => {
         const pinEl = el.querySelector(".alert-pin") as HTMLElement;
         if (pinEl) pinEl.style.transform = "scale(1)";
+      });
+
+      // Track marker clicks
+      el.addEventListener("click", () => {
+        const isCluster = cluster.alerts.length > 1;
+        posthog.capture("alert_marker_clicked", {
+          is_cluster: isCluster,
+          alert_count: cluster.alerts.length,
+          alert_type: cluster.mostSevereType,
+          alert_types: isCluster
+            ? Array.from(new Set(cluster.alerts.map((a) => a.type)))
+            : [cluster.mostSevereType],
+        });
       });
     });
   }, [alerts, mapLoaded, isDarkMode]);

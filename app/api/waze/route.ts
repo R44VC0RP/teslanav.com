@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getPostHogClient } from "@/lib/posthog-server";
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -45,6 +46,19 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Waze API error:", error);
+
+    // Track Waze API error
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: "server",
+      event: "waze_api_error",
+      properties: {
+        error_message: error instanceof Error ? error.message : "Unknown error",
+        bounds: { left, right, bottom, top },
+      },
+    });
+    await posthog.shutdown();
+
     return NextResponse.json(
       { error: "Failed to fetch Waze data", alerts: [] },
       { status: 500 }

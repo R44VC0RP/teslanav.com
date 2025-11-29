@@ -8,6 +8,7 @@ import { useWazeAlerts } from "@/hooks/useWazeAlerts";
 import { useReverseGeocode } from "@/hooks/useReverseGeocode";
 import type { MapBounds } from "@/types/waze";
 import Image from "next/image";
+import posthog from "posthog-js";
 
 // Consistent button styles for light/dark mode - more transparent with blur
 const getButtonStyles = (darkMode: boolean) => 
@@ -80,11 +81,27 @@ export default function Home() {
     if (latitude && longitude && mapRef.current) {
       mapRef.current.recenter(longitude, latitude);
       // Map component will call onCenteredChange(true)
+
+      // Track recenter event
+      posthog.capture("map_recentered", {
+        latitude,
+        longitude,
+        follow_mode: followMode,
+      });
     }
-  }, [latitude, longitude]);
+  }, [latitude, longitude, followMode]);
 
   const toggleDarkMode = useCallback(() => {
-    setIsDarkMode((prev) => !prev);
+    setIsDarkMode((prev) => {
+      const newValue = !prev;
+
+      // Track dark mode toggle
+      posthog.capture("dark_mode_toggled", {
+        dark_mode_enabled: newValue,
+      });
+
+      return newValue;
+    });
   }, []);
 
   const toggleFollowMode = useCallback(() => {
@@ -93,16 +110,28 @@ export default function Home() {
       if (mapRef.current) {
         mapRef.current.setFollowMode(newValue);
       }
+
+      // Track follow mode toggle
+      posthog.capture("follow_mode_toggled", {
+        follow_mode_enabled: newValue,
+      });
+
       return newValue;
     });
   }, []);
 
   const handleZoomIn = useCallback(() => {
     mapRef.current?.zoomIn();
+
+    // Track zoom in event
+    posthog.capture("map_zoomed_in");
   }, []);
 
   const handleZoomOut = useCallback(() => {
     mapRef.current?.zoomOut();
+
+    // Track zoom out event
+    posthog.capture("map_zoomed_out");
   }, []);
 
   // Filter alerts to show only key types (if enabled)
@@ -253,7 +282,11 @@ export default function Home() {
 
         {/* Settings Button */}
         <button
-          onClick={() => setShowSettings(true)}
+          onClick={() => {
+            setShowSettings(true);
+            // Track settings opened event
+            posthog.capture("settings_opened");
+          }}
           className={`
             w-11 h-11 rounded-xl backdrop-blur-xl flex items-center justify-center
             ${getButtonStyles(effectiveDarkMode)}

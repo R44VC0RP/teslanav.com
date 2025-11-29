@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import posthog from "posthog-js";
 
 interface GeolocationState {
   latitude: number | null;
@@ -163,6 +164,12 @@ export function useGeolocation(enableHighAccuracy = true) {
       error: error.message,
       loading: false,
     }));
+
+    // Track geolocation error
+    posthog.capture("geolocation_error", {
+      error_code: error.code,
+      error_message: error.message,
+    });
   }, []);
 
   useEffect(() => {

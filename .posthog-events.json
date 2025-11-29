@@ -1,0 +1,72 @@
+[
+  {
+    "event": "map_recentered",
+    "description": "User clicked the 'Recenter' button to return to their current location",
+    "file": "/Users/ryanvogel/dev/teslanav.com/app/page.tsx"
+  },
+  {
+    "event": "map_zoomed_in",
+    "description": "User clicked the zoom in button",
+    "file": "/Users/ryanvogel/dev/teslanav.com/app/page.tsx"
+  },
+  {
+    "event": "map_zoomed_out",
+    "description": "User clicked the zoom out button",
+    "file": "/Users/ryanvogel/dev/teslanav.com/app/page.tsx"
+  },
+  {
+    "event": "follow_mode_toggled",
+    "description": "User toggled follow mode (compass lock) on or off",
+    "file": "/Users/ryanvogel/dev/teslanav.com/app/page.tsx"
+  },
+  {
+    "event": "dark_mode_toggled",
+    "description": "User manually toggled dark mode on or off",
+    "file": "/Users/ryanvogel/dev/teslanav.com/app/page.tsx"
+  },
+  {
+    "event": "settings_opened",
+    "description": "User opened the settings modal",
+    "file": "/Users/ryanvogel/dev/teslanav.com/app/page.tsx"
+  },
+  {
+    "event": "settings_closed",
+    "description": "User closed the settings modal",
+    "file": "/Users/ryanvogel/dev/teslanav.com/components/SettingsModal.tsx"
+  },
+  {
+    "event": "waze_alerts_toggled",
+    "description": "User toggled Waze alerts visibility on or off in settings",
+    "file": "/Users/ryanvogel/dev/teslanav.com/components/SettingsModal.tsx"
+  },
+  {
+    "event": "traffic_layer_toggled",
+    "description": "User toggled traffic layer visibility on or off in settings",
+    "file": "/Users/ryanvogel/dev/teslanav.com/components/SettingsModal.tsx"
+  },
+  {
+    "event": "satellite_view_toggled",
+    "description": "User toggled satellite view on or off in settings",
+    "file": "/Users/ryanvogel/dev/teslanav.com/components/SettingsModal.tsx"
+  },
+  {
+    "event": "avatar_pulse_toggled",
+    "description": "User toggled the location pulse animation on or off in settings",
+    "file": "/Users/ryanvogel/dev/teslanav.com/components/SettingsModal.tsx"
+  },
+  {
+    "event": "alert_marker_clicked",
+    "description": "User clicked on a Waze alert marker to view details",
+    "file": "/Users/ryanvogel/dev/teslanav.com/components/Map.tsx"
+  },
+  {
+    "event": "waze_api_error",
+    "description": "Error occurred while fetching Waze alerts from the API",
+    "file": "/Users/ryanvogel/dev/teslanav.com/app/api/waze/route.ts"
+  },
+  {
+    "event": "geolocation_error",
+    "description": "Error occurred while accessing user's geolocation",
+    "file": "/Users/ryanvogel/dev/teslanav.com/hooks/useGeolocation.ts"
+  }
+]
