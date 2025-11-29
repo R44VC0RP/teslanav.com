@@ -104,7 +104,13 @@ export async function GET(request: NextRequest) {
     wazeUrl.searchParams.set("right", right);
     wazeUrl.searchParams.set("bottom", bottom);
     wazeUrl.searchParams.set("top", top);
-    wazeUrl.searchParams.set("env", "na"); // North America
+    
+    // Auto-detect region based on longitude
+    // North America is roughly between -170° and -30° longitude
+    const centerLon = (parseFloat(left) + parseFloat(right)) / 2;
+    const env = centerLon >= -170 && centerLon <= -30 ? "na" : "row";
+    wazeUrl.searchParams.set("env", env);
+    
     wazeUrl.searchParams.set("types", "alerts");
 
     const response = await fetch(wazeUrl.toString(), {

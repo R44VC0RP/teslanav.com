@@ -3,11 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Map, type MapRef } from "@/components/Map";
 import { SettingsModal } from "@/components/SettingsModal";
+import { NavigateSearch } from "@/components/NavigateSearch";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
 import { useSpeedCameras } from "@/hooks/useSpeedCameras";
 import { useReverseGeocode } from "@/hooks/useReverseGeocode";
 import type { MapBounds } from "@/types/waze";
+import type { RouteData } from "@/types/route";
 import Image from "next/image";
 import posthog from "posthog-js";
 import { ShieldExclamationIcon, ExclamationTriangleIcon, NoSymbolIcon } from "@heroicons/react/24/solid";
@@ -23,6 +25,26 @@ const getContainerStyles = (darkMode: boolean) =>
     ? "bg-[#1a1a1a]/50 text-white border-white/10"
     : "bg-white/50 text-black border-black/10";
 
+// Format duration in seconds to human-readable string
+function formatDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes} min`;
+}
+
+// Format distance in meters to human-readable string
+function formatDistance(meters: number): string {
+  const miles = meters / 1609.34;
+  if (miles >= 10) {
+    return `${Math.round(miles)} mi`;
+  }
+  return `${miles.toFixed(1)} mi`;
+}
+
 export default function Home() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [bounds, setBounds] = useState<MapBounds | null>(null);
@@ -36,10 +58,102 @@ export default function Home() {
   const [showAvatarPulse, setShowAvatarPulse] = useState(true);
   const mapRef = useRef<MapRef>(null);
 
+  const [destination, setDestination] = useState<{ lng: number; lat: number; name: string } | null>(null);
+  const [route, setRoute] = useState<RouteData | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ lng: number; lat: number; screenX: number; screenY: number; placeName?: string } | null>(null);
+  const [contextMenuLoading, setContextMenuLoading] = useState(false);
+
   const { latitude, longitude, heading, effectiveHeading, loading: geoLoading, error: geoError } = useGeolocation();
   const { alerts, loading: alertsLoading } = useWazeAlerts({ bounds });
   const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
   const { placeName, loading: placeLoading } = useReverseGeocode(latitude, longitude);
+
+  // Fetch route when destination is set
+  const fetchRoute = useCallback(async (destLng: number, destLat: number) => {
+    if (!latitude || !longitude) return;
+    
+    setRouteLoading(true);
+    try {
+      const response = await fetch(
+        `/api/directions?originLng=${longitude}&originLat=${latitude}&destLng=${destLng}&destLat=${destLat}`
+      );
+      
+      if (response.ok) {
+        const routeData: RouteData = await response.json();
+        setRoute(routeData);
+        
+        posthog.capture("route_calculated", {
+          distance_meters: routeData.distance,
+          duration_seconds: routeData.duration,
+        });
+      } else {
+        console.error("Failed to fetch route");
+        setRoute(null);
+      }
+    } catch (error) {
+      console.error("Route fetch error:", error);
+      setRoute(null);
+    } finally {
+      setRouteLoading(false);
+    }
+  }, [latitude, longitude]);
+
+  // Handle destination selection from search
+  const handleSelectDestination = useCallback((lng: number, lat: number, placeName: string) => {
+    setDestination({ lng, lat, name: placeName });
+    setContextMenu(null);
+    fetchRoute(lng, lat);
+  }, [fetchRoute]);
+
+  // Clear destination
+  const handleClearDestination = useCallback(() => {
+    setDestination(null);
+    setRoute(null);
+    if (latitude && longitude && mapRef.current) {
+      mapRef.current.recenter(longitude, latitude);
+    }
+  }, [latitude, longitude]);
+
+  // Handle long press on map
+  const handleMapLongPress = useCallback(async (lng: number, lat: number, screenX: number, screenY: number) => {
+    setContextMenuLoading(true);
+    setContextMenu({ lng, lat, screenX, screenY });
+
+    // Reverse geocode to get place name
+    try {
+      const response = await fetch(
+        `/api/geocode/reverse?lng=${lng}&lat=${lat}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setContextMenu({ lng, lat, screenX, screenY, placeName: data.placeName });
+      }
+    } catch (error) {
+      console.error("Reverse geocode error:", error);
+    } finally {
+      setContextMenuLoading(false);
+    }
+  }, []);
+
+  // Navigate to long-pressed location
+  const handleNavigateToContextMenu = useCallback(() => {
+    if (contextMenu) {
+      const name = contextMenu.placeName || `${contextMenu.lat.toFixed(4)}, ${contextMenu.lng.toFixed(4)}`;
+      handleSelectDestination(contextMenu.lng, contextMenu.lat, name);
+      
+      posthog.capture("navigate_from_long_press", {
+        place_name: name,
+        coordinates: { lng: contextMenu.lng, lat: contextMenu.lat },
+      });
+    }
+  }, [contextMenu, handleSelectDestination]);
+
+  // Close context menu
+  const handleCloseContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -188,12 +302,161 @@ export default function Home() {
         speedCameras={showSpeedCameras ? cameras : []}
         onBoundsChange={handleBoundsChange}
         onCenteredChange={handleCenteredChange}
+        onLongPress={handleMapLongPress}
+        pinLocation={contextMenu ? { lng: contextMenu.lng, lat: contextMenu.lat } : null}
+        route={route}
         userLocation={latitude && longitude ? { latitude, longitude, heading, effectiveHeading } : null}
         followMode={followMode}
         showTraffic={showTraffic}
         useSatellite={useSatellite}
         showAvatarPulse={showAvatarPulse}
       />
+
+      {/* Context Menu - Shows on long press */}
+      {contextMenu && (() => {
+        // Smart positioning: show below pin if in upper half, above pin if in lower half
+        const isUpperHalf = contextMenu.screenY < window.innerHeight / 2;
+        const menuHeight = 180; // approximate menu height
+        const pinOffset = 40; // space between pin and menu
+        
+        // Calculate horizontal position (keep menu on screen)
+        const menuWidth = 280;
+        let leftPos = contextMenu.screenX;
+        // Clamp to keep menu on screen horizontally
+        leftPos = Math.max(menuWidth / 2 + 16, Math.min(leftPos, window.innerWidth - menuWidth / 2 - 16));
+        
+        return (
+        <div className="absolute inset-0 z-40" onClick={handleCloseContextMenu}>
+          <div 
+            className="absolute -translate-x-1/2"
+            style={{ 
+              left: leftPos,
+              ...(isUpperHalf 
+                ? { top: contextMenu.screenY + pinOffset }
+                : { top: contextMenu.screenY - pinOffset - menuHeight }
+              ),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className={`
+                rounded-2xl backdrop-blur-xl shadow-2xl border overflow-hidden
+                ${effectiveDarkMode ? "bg-[#1a1a1a]/95 text-white border-white/10" : "bg-white/95 text-black border-black/10"}
+                min-w-[280px]
+              `}
+            >
+              {/* Location info */}
+              <div className="px-5 py-4 border-b border-inherit">
+                <div className={`text-xs uppercase tracking-wider mb-1 ${effectiveDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                  Selected Location
+                </div>
+                <div className="text-sm font-medium">
+                  {contextMenuLoading ? (
+                    <span className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin opacity-50" />
+                      Finding address...
+                    </span>
+                  ) : (
+                    contextMenu.placeName || `${contextMenu.lat.toFixed(4)}, ${contextMenu.lng.toFixed(4)}`
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="p-2">
+                <button
+                  onClick={handleNavigateToContextMenu}
+                  className={`
+                    w-full flex items-center gap-3 px-4 py-3 rounded-xl
+                    ${effectiveDarkMode ? "hover:bg-white/10" : "hover:bg-black/5"}
+                    transition-colors text-left
+                  `}
+                >
+                  <NavigateToIcon className={`w-5 h-5 ${effectiveDarkMode ? "text-blue-400" : "text-blue-500"}`} />
+                  <span className="font-medium">Navigate here</span>
+                </button>
+                <button
+                  onClick={handleCloseContextMenu}
+                  className={`
+                    w-full flex items-center gap-3 px-4 py-3 rounded-xl
+                    ${effectiveDarkMode ? "hover:bg-white/10 text-gray-400" : "hover:bg-black/5 text-gray-500"}
+                    transition-colors text-left
+                  `}
+                >
+                  <CloseNavIcon className="w-5 h-5" />
+                  <span className="font-medium">Cancel</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* Top Left - Navigate Search + Destination Card */}
+      <div className="absolute top-4 left-4 z-30 flex flex-col gap-3">
+        <NavigateSearch
+          isDarkMode={effectiveDarkMode}
+          onSelectDestination={handleSelectDestination}
+          onOpenChange={setIsSearchOpen}
+          userLocation={latitude && longitude ? { latitude, longitude } : null}
+        />
+        
+        {/* Destination Card - Shows when navigating (hidden while search is open) */}
+        {destination && !isSearchOpen && (
+          <div
+            className={`
+              rounded-2xl backdrop-blur-xl overflow-hidden
+              ${getContainerStyles(effectiveDarkMode)}
+              shadow-lg border max-w-[360px]
+            `}
+          >
+            {/* Route info */}
+            {route && (
+              <div className="flex items-center gap-4 px-4 py-3 border-b border-inherit">
+                <div className="flex items-center gap-2">
+                  <ClockIcon className={`w-5 h-5 ${effectiveDarkMode ? "text-blue-400" : "text-blue-500"}`} />
+                  <span className="text-lg font-semibold">
+                    {formatDuration(route.duration)}
+                  </span>
+                </div>
+                <div className={`text-sm ${effectiveDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                  {formatDistance(route.distance)}
+                </div>
+              </div>
+            )}
+            {routeLoading && (
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-inherit">
+                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin opacity-50" />
+                <span className={`text-sm ${effectiveDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                  Calculating route...
+                </span>
+              </div>
+            )}
+            
+            {/* Destination info */}
+            <div className="flex items-center gap-3 px-4 py-3">
+              <NavigateToIcon className={`w-5 h-5 flex-shrink-0 ${effectiveDarkMode ? "text-blue-400" : "text-blue-500"}`} />
+              <div className="flex-1 min-w-0">
+                <div className={`text-xs uppercase tracking-wider ${effectiveDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                  Navigating to
+                </div>
+                <div className="text-sm font-medium truncate">{destination.name}</div>
+              </div>
+              <button
+                onClick={handleClearDestination}
+                className={`
+                  p-2 rounded-lg transition-colors
+                  ${effectiveDarkMode ? "hover:bg-white/10" : "hover:bg-black/5"}
+                `}
+                aria-label="Clear destination"
+              >
+                <CloseNavIcon className="w-5 h-5 opacity-60" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Top Right - Compass + Alert Summary (stacked) */}
       <div className="absolute top-4 right-4 z-30 flex flex-col items-end gap-3">
@@ -502,6 +765,30 @@ function SettingsIcon({ className }: { className?: string }) {
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+}
+
+function CloseNavIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+function NavigateToIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 0 1 0-5 2.5 2.5 0 0 1 0 5z"/>
+    </svg>
+  );
+}
+
+function ClockIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   );
 }

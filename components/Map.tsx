@@ -5,6 +5,7 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { WazeAlert, MapBounds } from "@/types/waze";
 import type { SpeedCamera } from "@/types/speedcamera";
+import type { RouteData } from "@/types/route";
 import posthog from "posthog-js";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -17,6 +18,9 @@ interface MapProps {
   speedCameras?: SpeedCamera[];
   onBoundsChange?: (bounds: MapBounds) => void;
   onCenteredChange?: (isCentered: boolean) => void;
+  onLongPress?: (lng: number, lat: number, screenX: number, screenY: number) => void;
+  pinLocation?: { lng: number; lat: number } | null;
+  route?: RouteData | null;
   userLocation?: { 
     latitude: number; 
     longitude: number; 
@@ -35,6 +39,7 @@ export interface MapRef {
   resetNorth: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
+  flyToDestination: (lng: number, lat: number) => void;
 }
 
 const ALERT_COLORS: Record<string, string> = {
@@ -175,6 +180,9 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     speedCameras = [],
     onBoundsChange,
     onCenteredChange,
+    onLongPress,
+    pinLocation,
+    route,
     userLocation,
     followMode = false,
     showTraffic = false,
@@ -189,6 +197,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   const cameraMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const userMarkerElRef = useRef<HTMLDivElement | null>(null);
+  const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const initialCenterSet = useRef(false);
   const isFollowMode = useRef(followMode);
@@ -197,6 +206,12 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   const isAutoCentering = useRef(true);
   const userInteractingRef = useRef(false);
   const isZoomingRef = useRef(false);
+  
+  // Long press handling
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
+  const LONG_PRESS_DURATION = 500; // ms
+  const LONG_PRESS_MOVE_THRESHOLD = 10; // pixels
   
   // Animation state for smooth interpolation
   const animationRef = useRef<number | null>(null);
@@ -267,6 +282,18 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       // Set zooming flag immediately to prevent auto-centering from interfering
       isZoomingRef.current = true;
       map.current?.zoomOut({ duration: 300 });
+    },
+    flyToDestination: (lng: number, lat: number) => {
+      // Disable auto-centering when navigating to a destination
+      isAutoCentering.current = false;
+      onCenteredChange?.(false);
+      
+      map.current?.flyTo({
+        center: [lng, lat],
+        zoom: 16,
+        duration: 1500,
+        essential: true,
+      });
     },
   }));
 
@@ -472,6 +499,97 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       map.current = null;
     };
   }, []);
+
+  // Long press handler for "navigate to" functionality
+  useEffect(() => {
+    if (!map.current || !mapLoaded || !onLongPress) return;
+
+    const mapInstance = map.current;
+    const canvas = mapInstance.getCanvasContainer();
+
+    const clearLongPress = () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      longPressStartRef.current = null;
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) {
+        clearLongPress();
+        return;
+      }
+
+      const touch = e.touches[0];
+      longPressStartRef.current = { x: touch.clientX, y: touch.clientY };
+
+      longPressTimerRef.current = setTimeout(() => {
+        if (longPressStartRef.current && map.current) {
+          // Get the coordinates from the touch point
+          const point = map.current.unproject([
+            touch.clientX - canvas.getBoundingClientRect().left,
+            touch.clientY - canvas.getBoundingClientRect().top,
+          ]);
+          
+          // Trigger haptic feedback if available
+          if (navigator.vibrate) {
+            navigator.vibrate(50);
+          }
+          
+          onLongPress(point.lng, point.lat, touch.clientX, touch.clientY);
+        }
+        clearLongPress();
+      }, LONG_PRESS_DURATION);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!longPressStartRef.current || e.touches.length !== 1) {
+        clearLongPress();
+        return;
+      }
+
+      const touch = e.touches[0];
+      const dx = touch.clientX - longPressStartRef.current.x;
+      const dy = touch.clientY - longPressStartRef.current.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance > LONG_PRESS_MOVE_THRESHOLD) {
+        clearLongPress();
+      }
+    };
+
+    const handleTouchEnd = () => {
+      clearLongPress();
+    };
+
+    // Also support right-click on desktop
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      if (map.current) {
+        const point = map.current.unproject([
+          e.clientX - canvas.getBoundingClientRect().left,
+          e.clientY - canvas.getBoundingClientRect().top,
+        ]);
+        onLongPress(point.lng, point.lat, e.clientX, e.clientY);
+      }
+    };
+
+    canvas.addEventListener("touchstart", handleTouchStart, { passive: true });
+    canvas.addEventListener("touchmove", handleTouchMove, { passive: true });
+    canvas.addEventListener("touchend", handleTouchEnd);
+    canvas.addEventListener("touchcancel", handleTouchEnd);
+    canvas.addEventListener("contextmenu", handleContextMenu);
+
+    return () => {
+      clearLongPress();
+      canvas.removeEventListener("touchstart", handleTouchStart);
+      canvas.removeEventListener("touchmove", handleTouchMove);
+      canvas.removeEventListener("touchend", handleTouchEnd);
+      canvas.removeEventListener("touchcancel", handleTouchEnd);
+      canvas.removeEventListener("contextmenu", handleContextMenu);
+    };
+  }, [mapLoaded, onLongPress]);
 
   // Auto-center on user location (only once on initial load)
   useEffect(() => {
@@ -952,6 +1070,185 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     });
   }, [speedCameras, mapLoaded, isDarkMode]);
 
+  // Pin marker for long-press location (using Waze origin marker style)
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    // Remove existing pin marker
+    if (pinMarkerRef.current) {
+      pinMarkerRef.current.remove();
+      pinMarkerRef.current = null;
+    }
+
+    // Create new pin marker if location is set
+    if (pinLocation) {
+      const el = document.createElement("div");
+      el.className = "pin-marker";
+      el.innerHTML = `
+        <div class="pin-marker-container" style="
+          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+          animation: pin-pulse 1.5s ease-in-out infinite;
+        ">
+          <svg width="32" height="32" fill="none" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="11" cy="11" r="11" fill="#fff"/>
+            <circle cx="11" cy="11" r="6.5" fill="#fff" stroke="#0099ff" stroke-width="4"/>
+          </svg>
+        </div>
+      `;
+
+      pinMarkerRef.current = new mapboxgl.Marker({ 
+        element: el, 
+        anchor: "center" 
+      })
+        .setLngLat([pinLocation.lng, pinLocation.lat])
+        .addTo(map.current);
+    }
+  }, [pinLocation, mapLoaded]);
+
+  // Route line display
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    const mapInstance = map.current;
+    const sourceId = "route-source";
+    const layerId = "route-layer";
+    const casingLayerId = "route-casing-layer";
+
+    // Function to remove existing route layers
+    const removeRouteLayers = () => {
+      if (mapInstance.getLayer(layerId)) {
+        mapInstance.removeLayer(layerId);
+      }
+      if (mapInstance.getLayer(casingLayerId)) {
+        mapInstance.removeLayer(casingLayerId);
+      }
+      if (mapInstance.getSource(sourceId)) {
+        mapInstance.removeSource(sourceId);
+      }
+    };
+
+    // Remove existing route
+    removeRouteLayers();
+
+    // Add new route if provided
+    if (route && route.geometry) {
+      // Add route source
+      mapInstance.addSource(sourceId, {
+        type: "geojson",
+        data: {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "LineString" as const,
+            coordinates: route.geometry.coordinates,
+          },
+        },
+      });
+
+      // Add route casing (outline) for better visibility
+      mapInstance.addLayer({
+        id: casingLayerId,
+        type: "line",
+        source: sourceId,
+        layout: {
+          "line-join": "round",
+          "line-cap": "round",
+        },
+        paint: {
+          "line-color": isDarkMode ? "#1a1a1a" : "#ffffff",
+          "line-width": 10,
+          "line-opacity": 0.8,
+        },
+      });
+
+      // Add route line
+      mapInstance.addLayer({
+        id: layerId,
+        type: "line",
+        source: sourceId,
+        layout: {
+          "line-join": "round",
+          "line-cap": "round",
+        },
+        paint: {
+          "line-color": "#3b82f6", // Blue route color
+          "line-width": 6,
+          "line-opacity": 1,
+        },
+      });
+
+      // Fit map to show the entire route
+      const coordinates = route.geometry.coordinates;
+      if (coordinates.length > 0) {
+        const bounds = coordinates.reduce(
+          (bounds, coord) => bounds.extend(coord as [number, number]),
+          new mapboxgl.LngLatBounds(coordinates[0] as [number, number], coordinates[0] as [number, number])
+        );
+
+        mapInstance.fitBounds(bounds, {
+          padding: { top: 100, bottom: 200, left: 50, right: 50 },
+          duration: 1000,
+        });
+      }
+    }
+
+    // Cleanup on style change
+    const handleStyleLoad = () => {
+      if (route && route.geometry) {
+        // Re-add route after style change
+        removeRouteLayers();
+        
+        mapInstance.addSource(sourceId, {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "LineString" as const,
+              coordinates: route.geometry.coordinates,
+            },
+          },
+        });
+
+        mapInstance.addLayer({
+          id: casingLayerId,
+          type: "line",
+          source: sourceId,
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
+          paint: {
+            "line-color": isDarkMode ? "#1a1a1a" : "#ffffff",
+            "line-width": 10,
+            "line-opacity": 0.8,
+          },
+        });
+
+        mapInstance.addLayer({
+          id: layerId,
+          type: "line",
+          source: sourceId,
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
+          paint: {
+            "line-color": "#3b82f6",
+            "line-width": 6,
+            "line-opacity": 1,
+          },
+        });
+      }
+    };
+
+    mapInstance.on("style.load", handleStyleLoad);
+
+    return () => {
+      mapInstance.off("style.load", handleStyleLoad);
+    };
+  }, [route, mapLoaded, isDarkMode]);
+
   return (
     <>
       <div
@@ -1007,6 +1304,19 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
           100% {
             transform: translate(-50%, -50%) scale(1.3);
             opacity: 0;
+          }
+        }
+        
+        .pin-marker {
+          z-index: 15 !important;
+        }
+        
+        @keyframes pin-pulse {
+          0%, 100% {
+            transform: scale(1);
+          }
+          50% {
+            transform: scale(1.1);
           }
         }
         
