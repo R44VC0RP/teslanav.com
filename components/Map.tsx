@@ -44,11 +44,11 @@ const ALERT_COLORS: Record<string, string> = {
 };
 
 const ALERT_ICONS: Record<string, string> = {
-  POLICE: "🚔",
-  ACCIDENT: "🚨",
-  HAZARD: "⚠️",
-  ROAD_CLOSED: "🚧",
-  JAM: "🚗",
+  POLICE: "/icons/police.svg",
+  ACCIDENT: "/icons/accident.svg",
+  HAZARD: "/icons/hazard.svg",
+  ROAD_CLOSED: "/icons/closure.svg",
+  JAM: "/icons/object-on-road.svg",
 };
 
 // Severity order for clustering (higher = more severe)
@@ -684,7 +684,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
 
       const isCluster = cluster.alerts.length > 1;
       const color = ALERT_COLORS[cluster.mostSevereType] || "#6b7280";
-      const icon = ALERT_ICONS[cluster.mostSevereType] || "📍";
+      const icon = ALERT_ICONS[cluster.mostSevereType] || "/icons/hazard.svg";
 
       if (isCluster) {
         // Cluster marker - minimal bubble with count badge
@@ -700,19 +700,13 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
               display: flex;
               align-items: center;
               justify-content: center;
-              width: 36px;
-              height: 36px;
-              background: ${color};
-              border-radius: 10px;
-              font-size: 18px;
-              box-shadow: 0 2px 8px ${shadowColor};
             ">
-              ${icon}
+              <img src="${icon}" alt="${cluster.mostSevereType}" style="width: 44px; height: auto;" />
             </div>
             <div class="alert-badge" style="
               position: absolute;
-              top: -6px;
-              right: -6px;
+              top: -2px;
+              right: -2px;
               min-width: 18px;
               height: 18px;
               background: white;
@@ -739,7 +733,6 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
           .sort(([a], [b]) => (ALERT_SEVERITY[b] ?? 0) - (ALERT_SEVERITY[a] ?? 0))
           .map(([type, cnt]) => `
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
-              <span>${ALERT_ICONS[type] || "📍"}</span>
               <span style="color: ${ALERT_COLORS[type]}; font-weight: 500;">${type.replace(/_/g, " ")}</span>
               <span style="color: ${popupSubtext};">×${cnt}</span>
             </div>
@@ -748,7 +741,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         const popupContent = `
           <div class="alert-popup" style="background: ${popupBg}; color: ${popupText};">
             <div class="alert-popup-header" style="color: ${color}; margin-bottom: 8px;">
-              ⚠️ ${count} Reports in Area
+              ${count} Reports in Area
             </div>
             ${breakdownHtml}
           </div>
@@ -781,14 +774,8 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
               display: flex;
               align-items: center;
               justify-content: center;
-              width: 32px;
-              height: 32px;
-              background: ${color};
-              border-radius: 8px;
-              font-size: 16px;
-              box-shadow: 0 2px 6px ${shadowColor};
             ">
-              ${icon}
+              <img src="${icon}" alt="${alert.type}" style="width: 36px; height: auto;" />
             </div>
           </div>
         `;
@@ -796,14 +783,24 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         const popupContent = `
           <div class="alert-popup" style="background: ${popupBg}; color: ${popupText};">
             <div class="alert-popup-header" style="color: ${color}">
-              ${icon} ${alert.type.replace(/_/g, " ")}
+              ${alert.type.replace(/_/g, " ")}
             </div>
             ${alert.street ? `<div class="alert-popup-street" style="color: ${popupText}">${alert.street}</div>` : ""}
             ${alert.subtype ? `<div class="alert-popup-subtype" style="color: ${popupSubtext}">${alert.subtype.replace(/_/g, " ")}</div>` : ""}
             ${alert.reportDescription ? `<div class="alert-popup-desc" style="color: ${popupSubtext}">${alert.reportDescription}</div>` : ""}
             <div class="alert-popup-meta" style="color: ${popupSubtext}">
-              ${alert.nThumbsUp ? `<span>👍 ${alert.nThumbsUp}</span>` : ""}
-              ${alert.reliability ? `<span>⭐ ${alert.reliability}/10</span>` : ""}
+              ${alert.nThumbsUp ? `<span style="display: inline-flex; align-items: center; gap: 3px;">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width: 12px; height: 12px;">
+                  <path d="M7.493 18.5c-.425 0-.82-.236-.975-.632A7.48 7.48 0 0 1 6 15.125c0-1.75.599-3.358 1.602-4.634.151-.192.373-.309.6-.397.473-.183.89-.514 1.212-.924a9.042 9.042 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V3a.75.75 0 0 1 .75-.75 2.25 2.25 0 0 1 2.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 0 1-2.649 7.521c-.388.482-.987.729-1.605.729H14.23c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 0 0-1.423-.23h-.777ZM2.331 10.727a11.969 11.969 0 0 0-.831 4.398 12 12 0 0 0 .52 3.507C2.28 19.482 3.105 20 3.994 20H4.9c.445 0 .72-.498.523-.898a8.963 8.963 0 0 1-.924-3.977c0-1.708.476-3.305 1.302-4.666.245-.403-.028-.959-.5-.959H4.25c-.832 0-1.612.453-1.918 1.227Z" />
+                </svg>
+                ${alert.nThumbsUp}
+              </span>` : ""}
+              ${alert.reliability ? `<span style="display: inline-flex; align-items: center; gap: 3px;">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width: 12px; height: 12px;">
+                  <path fill-rule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.005Z" clip-rule="evenodd" />
+                </svg>
+                ${alert.reliability}/10
+              </span>` : ""}
             </div>
           </div>
         `;
@@ -857,6 +854,10 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         style={{ position: "absolute", inset: 0 }}
       />
       <style jsx global>{`
+        .user-marker {
+          z-index: 10 !important;
+        }
+        
         .user-avatar-container {
           position: relative;
           width: 72px;

@@ -9,6 +9,7 @@ import { useReverseGeocode } from "@/hooks/useReverseGeocode";
 import type { MapBounds } from "@/types/waze";
 import Image from "next/image";
 import posthog from "posthog-js";
+import { ShieldExclamationIcon, ExclamationTriangleIcon, NoSymbolIcon } from "@heroicons/react/24/solid";
 
 // Consistent button styles for light/dark mode - more transparent with blur
 const getButtonStyles = (darkMode: boolean) => 
@@ -235,26 +236,26 @@ export default function Home() {
             `}
           >
             {alertCounts.police > 0 && (
-              <span className="flex items-center gap-1 text-base">
-                <span className="text-xl">🚔</span>
+              <span className="flex items-center gap-1.5 text-base">
+                <ShieldExclamationIcon className="w-5 h-5 text-blue-500" />
                 <span className="font-semibold">{alertCounts.police}</span>
               </span>
             )}
             {alertCounts.accidents > 0 && (
-              <span className="flex items-center gap-1 text-base">
-                <span className="text-xl">🚨</span>
+              <span className="flex items-center gap-1.5 text-base">
+                <ExclamationTriangleIcon className="w-5 h-5 text-red-500" />
                 <span className="font-semibold">{alertCounts.accidents}</span>
               </span>
             )}
             {alertCounts.hazards > 0 && (
-              <span className="flex items-center gap-1 text-base">
-                <span className="text-xl">⚠️</span>
+              <span className="flex items-center gap-1.5 text-base">
+                <ExclamationTriangleIcon className="w-5 h-5 text-amber-500" />
                 <span className="font-semibold">{alertCounts.hazards}</span>
               </span>
             )}
             {alertCounts.closures > 0 && (
-              <span className="flex items-center gap-1 text-base">
-                <span className="text-xl">🚧</span>
+              <span className="flex items-center gap-1.5 text-base">
+                <NoSymbolIcon className="w-5 h-5 text-gray-500" />
                 <span className="font-semibold">{alertCounts.closures}</span>
               </span>
             )}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import posthog from "posthog-js";
+import { ShieldExclamationIcon, MapIcon } from "@heroicons/react/24/solid";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -158,7 +159,7 @@ export function SettingsModal({
                   ${isDarkMode ? "bg-white/5" : "bg-black/5"}
                 `}>
                   <div className="flex items-center gap-4">
-                    <span className="text-3xl">🚔</span>
+                    <ShieldExclamationIcon className="w-8 h-8 text-blue-500" />
                     <div>
                       <div className="text-lg font-medium">Waze Alerts</div>
                       <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
@@ -185,7 +186,7 @@ export function SettingsModal({
                   ${isDarkMode ? "bg-white/5" : "bg-black/5"}
                 `}>
                   <div className="flex items-center gap-4">
-                    <span className="text-3xl">🚗</span>
+                    <MapIcon className="w-8 h-8 text-orange-500" />
                     <div>
                       <div className="text-lg font-medium">Traffic Layer</div>
                       <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
