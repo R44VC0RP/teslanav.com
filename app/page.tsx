@@ -162,8 +162,8 @@ export default function Home() {
     closures: filteredAlerts.filter((a) => a.type === "ROAD_CLOSED").length,
   };
 
-  // Show refocus button when not centered and not in follow mode
-  const showRefocusButton = !isCentered && !followMode && latitude && longitude;
+  // Show refocus button when not centered (regardless of rotation mode)
+  const showRefocusButton = !isCentered && latitude && longitude;
 
   // Use dark theme for UI when satellite mode is on
   const effectiveDarkMode = isDarkMode || useSatellite;
