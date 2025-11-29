@@ -70,11 +70,34 @@ export default function Home() {
   const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
   const { placeName, loading: placeLoading } = useReverseGeocode(latitude, longitude);
 
+  // Track last route origin to detect significant movement
+  const lastRouteOriginRef = useRef<{ lat: number; lng: number } | null>(null);
+  const routeUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const ROUTE_UPDATE_DISTANCE_THRESHOLD = 50; // meters - recalculate if user moves this far
+  const ROUTE_UPDATE_DEBOUNCE = 2000; // ms - minimum time between route updates
+
+  // Calculate distance between two coordinates in meters (Haversine formula)
+  const getDistanceInMeters = useCallback((lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }, []);
+
   // Fetch route when destination is set
-  const fetchRoute = useCallback(async (destLng: number, destLat: number) => {
+  const fetchRoute = useCallback(async (destLng: number, destLat: number, isUpdate = false) => {
     if (!latitude || !longitude) return;
     
-    setRouteLoading(true);
+    // Only show loading indicator for initial route, not updates
+    if (!isUpdate) {
+      setRouteLoading(true);
+    }
+    
     try {
       const response = await fetch(
         `/api/directions?originLng=${longitude}&originLat=${latitude}&destLng=${destLng}&destLat=${destLat}`
@@ -84,26 +107,66 @@ export default function Home() {
         const routeData: RouteData = await response.json();
         setRoute(routeData);
         
-        posthog.capture("route_calculated", {
-          distance_meters: routeData.distance,
-          duration_seconds: routeData.duration,
-        });
+        // Update last origin
+        lastRouteOriginRef.current = { lat: latitude, lng: longitude };
+        
+        if (!isUpdate) {
+          posthog.capture("route_calculated", {
+            distance_meters: routeData.distance,
+            duration_seconds: routeData.duration,
+          });
+        }
       } else {
         console.error("Failed to fetch route");
-        setRoute(null);
+        if (!isUpdate) setRoute(null);
       }
     } catch (error) {
       console.error("Route fetch error:", error);
-      setRoute(null);
+      if (!isUpdate) setRoute(null);
     } finally {
-      setRouteLoading(false);
+      if (!isUpdate) {
+        setRouteLoading(false);
+      }
     }
   }, [latitude, longitude]);
+
+  // Recalculate route when user moves significantly during navigation
+  useEffect(() => {
+    if (!destination || !latitude || !longitude || !lastRouteOriginRef.current) return;
+    
+    const distanceMoved = getDistanceInMeters(
+      lastRouteOriginRef.current.lat,
+      lastRouteOriginRef.current.lng,
+      latitude,
+      longitude
+    );
+    
+    // Only recalculate if user has moved beyond threshold
+    if (distanceMoved >= ROUTE_UPDATE_DISTANCE_THRESHOLD) {
+      // Clear any pending update
+      if (routeUpdateTimeoutRef.current) {
+        clearTimeout(routeUpdateTimeoutRef.current);
+      }
+      
+      // Debounce the route update
+      routeUpdateTimeoutRef.current = setTimeout(() => {
+        fetchRoute(destination.lng, destination.lat, true);
+      }, ROUTE_UPDATE_DEBOUNCE);
+    }
+    
+    return () => {
+      if (routeUpdateTimeoutRef.current) {
+        clearTimeout(routeUpdateTimeoutRef.current);
+      }
+    };
+  }, [latitude, longitude, destination, fetchRoute, getDistanceInMeters]);
 
   // Handle destination selection from search
   const handleSelectDestination = useCallback((lng: number, lat: number, placeName: string) => {
     setDestination({ lng, lat, name: placeName });
     setContextMenu(null);
+    // Reset last origin so the first fetch sets it
+    lastRouteOriginRef.current = null;
     fetchRoute(lng, lat);
   }, [fetchRoute]);
 
@@ -111,6 +174,10 @@ export default function Home() {
   const handleClearDestination = useCallback(() => {
     setDestination(null);
     setRoute(null);
+    lastRouteOriginRef.current = null;
+    if (routeUpdateTimeoutRef.current) {
+      clearTimeout(routeUpdateTimeoutRef.current);
+    }
     if (latitude && longitude && mapRef.current) {
       mapRef.current.recenter(longitude, latitude);
     }
