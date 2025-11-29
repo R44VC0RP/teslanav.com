@@ -34,10 +34,10 @@ function calculateBoundsOverlap(a: MapBounds, b: MapBounds): number {
 
 export function useWazeAlerts({
   bounds,
-  refreshInterval = 60000, // 60 seconds
-  debounceMs = 500, // 500ms - fast response, server caching handles the rest
-  minMovementThreshold = 0.15, // Fetch if viewport changed by 15%+ (more responsive)
-  maxRequestsPerMinute = 12, // Server caching means we can be more aggressive
+  refreshInterval = 30000, // 30 seconds - safety-critical data needs frequent updates
+  debounceMs = 250, // 250ms - snappy response, server caching handles the rest
+  minMovementThreshold = 0.10, // Fetch if viewport changed by 10%+ (more responsive for driving)
+  maxRequestsPerMinute = 15, // Allow more requests for safety-critical updates
   minZoomLevel = 10, // Don't fetch when zoomed out past city level to avoid overloading servers
 }: UseWazeAlertsOptions) {
   const [alerts, setAlerts] = useState<WazeAlert[]>([]);
@@ -96,8 +96,8 @@ export function useWazeAlerts({
       if (!lastFetchedBounds.current) return true;
       
       const overlap = calculateBoundsOverlap(lastFetchedBounds.current, newBounds);
-      // If overlap is less than (1 - threshold), we've moved enough
-      return overlap < (1 - minMovementThreshold);
+      // If overlap is at or below (1 - threshold), we've moved enough
+      return overlap <= (1 - minMovementThreshold);
     },
     [minMovementThreshold]
   );

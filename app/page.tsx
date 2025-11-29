@@ -293,6 +293,9 @@ export default function Home() {
               <span className="text-sm font-medium">
                 {placeLoading ? "..." : (placeName || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)}
               </span>
+              <span className={`text-[10px] ${effectiveDarkMode ? "text-gray-100" : "text-gray-400"}`}>
+                v0.1.0
+              </span>
             </div>
           </div>
         )}

@@ -35,7 +35,7 @@ function calculateBoundsOverlap(a: MapBounds, b: MapBounds): number {
 export function useSpeedCameras({
   bounds,
   refreshInterval = 300000, // 5 minutes (cameras don't change often)
-  debounceMs = 800, // 800ms - slightly longer than Waze since cameras are less urgent
+  debounceMs = 400, // 400ms - slightly longer than Waze since cameras are less urgent
   minMovementThreshold = 0.25, // Fetch if viewport changed by 25%+
   enabled = true,
   minZoomLevel = 10, // Don't fetch when zoomed out past city level to avoid overloading servers
@@ -90,7 +90,8 @@ export function useSpeedCameras({
       if (!lastFetchedBounds.current) return true;
       
       const overlap = calculateBoundsOverlap(lastFetchedBounds.current, newBounds);
-      return overlap < (1 - minMovementThreshold);
+      // If overlap is at or below (1 - threshold), we've moved enough
+      return overlap <= (1 - minMovementThreshold);
     },
     [minMovementThreshold]
   );
