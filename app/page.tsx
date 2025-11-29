@@ -64,6 +64,8 @@ export default function Home() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ lng: number; lat: number; screenX: number; screenY: number; placeName?: string } | null>(null);
   const [contextMenuLoading, setContextMenuLoading] = useState(false);
+  // Preview location - shown on map when user searches but hasn't started navigation yet
+  const [previewLocation, setPreviewLocation] = useState<{ lng: number; lat: number; name: string } | null>(null);
 
   const { latitude, longitude, heading, effectiveHeading, loading: geoLoading, error: geoError } = useGeolocation();
   const { alerts, loading: alertsLoading } = useWazeAlerts({ bounds });
@@ -161,19 +163,48 @@ export default function Home() {
     };
   }, [latitude, longitude, destination, fetchRoute, getDistanceInMeters]);
 
-  // Handle destination selection from search
+  // Handle destination selection from search - just preview, don't navigate yet
   const handleSelectDestination = useCallback((lng: number, lat: number, placeName: string) => {
-    setDestination({ lng, lat, name: placeName });
+    setPreviewLocation({ lng, lat, name: placeName });
     setContextMenu(null);
+    // Center map on the searched location
+    if (mapRef.current) {
+      mapRef.current.recenter(lng, lat);
+    }
+    posthog.capture("location_previewed", {
+      place_name: placeName,
+    });
+  }, []);
+
+  // Actually start navigation from preview location
+  const handleStartNavigation = useCallback(() => {
+    if (!previewLocation) return;
+    
+    setDestination(previewLocation);
+    setPreviewLocation(null);
     // Reset last origin so the first fetch sets it
     lastRouteOriginRef.current = null;
-    fetchRoute(lng, lat);
-  }, [fetchRoute]);
+    fetchRoute(previewLocation.lng, previewLocation.lat);
+    
+    posthog.capture("navigation_started_from_preview", {
+      place_name: previewLocation.name,
+    });
+  }, [previewLocation, fetchRoute]);
+
+  // Cancel preview and return to user location
+  const handleCancelPreview = useCallback(() => {
+    setPreviewLocation(null);
+    // Return to user's location
+    if (latitude && longitude && mapRef.current) {
+      mapRef.current.recenter(longitude, latitude);
+    }
+  }, [latitude, longitude]);
 
   // Clear destination
   const handleClearDestination = useCallback(() => {
     setDestination(null);
     setRoute(null);
+    setPreviewLocation(null);
     lastRouteOriginRef.current = null;
     if (routeUpdateTimeoutRef.current) {
       clearTimeout(routeUpdateTimeoutRef.current);
@@ -204,18 +235,24 @@ export default function Home() {
     }
   }, []);
 
-  // Navigate to long-pressed location
+  // Navigate to long-pressed location (direct navigation since user already confirmed)
   const handleNavigateToContextMenu = useCallback(() => {
     if (contextMenu) {
       const name = contextMenu.placeName || `${contextMenu.lat.toFixed(4)}, ${contextMenu.lng.toFixed(4)}`;
-      handleSelectDestination(contextMenu.lng, contextMenu.lat, name);
+      
+      // Direct navigation - set destination and fetch route immediately
+      setDestination({ lng: contextMenu.lng, lat: contextMenu.lat, name });
+      setContextMenu(null);
+      setPreviewLocation(null); // Clear any preview
+      lastRouteOriginRef.current = null;
+      fetchRoute(contextMenu.lng, contextMenu.lat);
       
       posthog.capture("navigate_from_long_press", {
         place_name: name,
         coordinates: { lng: contextMenu.lng, lat: contextMenu.lat },
       });
     }
-  }, [contextMenu, handleSelectDestination]);
+  }, [contextMenu, fetchRoute]);
 
   // Close context menu
   const handleCloseContextMenu = useCallback(() => {
@@ -370,7 +407,7 @@ export default function Home() {
         onBoundsChange={handleBoundsChange}
         onCenteredChange={handleCenteredChange}
         onLongPress={handleMapLongPress}
-        pinLocation={contextMenu ? { lng: contextMenu.lng, lat: contextMenu.lat } : null}
+        pinLocation={contextMenu ? { lng: contextMenu.lng, lat: contextMenu.lat } : previewLocation ? { lng: previewLocation.lng, lat: previewLocation.lat } : null}
         route={route}
         userLocation={latitude && longitude ? { latitude, longitude, heading, effectiveHeading } : null}
         followMode={followMode}
@@ -468,6 +505,53 @@ export default function Home() {
           onOpenChange={setIsSearchOpen}
           userLocation={latitude && longitude ? { latitude, longitude } : null}
         />
+
+        {/* Preview Card - Shows when a location is searched but not navigating yet */}
+        {previewLocation && !destination && !isSearchOpen && (
+          <div
+            className={`
+              rounded-2xl backdrop-blur-xl overflow-hidden
+              ${getContainerStyles(effectiveDarkMode)}
+              shadow-lg border max-w-[360px]
+            `}
+          >
+            {/* Location info */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-inherit">
+              <LocationSearchIcon className={`w-5 h-5 flex-shrink-0 ${effectiveDarkMode ? "text-blue-400" : "text-blue-500"}`} />
+              <div className="flex-1 min-w-0">
+                <div className={`text-xs uppercase tracking-wider ${effectiveDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                  Search Result
+                </div>
+                <div className="text-sm font-medium truncate">{previewLocation.name}</div>
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-2 p-3">
+              <button
+                onClick={handleStartNavigation}
+                className={`
+                  flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
+                  bg-blue-500 text-white font-medium
+                  transition-all hover:bg-blue-600 active:scale-[0.98]
+                `}
+              >
+                <NavigateToIcon className="w-4 h-4" />
+                Navigate
+              </button>
+              <button
+                onClick={handleCancelPreview}
+                className={`
+                  px-4 py-2.5 rounded-xl font-medium
+                  ${effectiveDarkMode ? "bg-white/10 hover:bg-white/20" : "bg-black/5 hover:bg-black/10"}
+                  transition-all active:scale-[0.98]
+                `}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         
         {/* Destination Card - Shows when navigating (hidden while search is open) */}
         {destination && !isSearchOpen && (
@@ -856,6 +940,14 @@ function ClockIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
+function LocationSearchIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path fillRule="evenodd" d="M11.54 22.351l.07.04.028.016a.76.76 0 00.723 0l.028-.015.071-.041a16.975 16.975 0 001.144-.742 19.58 19.58 0 002.683-2.282c1.944-1.99 3.963-4.98 3.963-8.827a8.25 8.25 0 00-16.5 0c0 3.846 2.02 6.837 3.963 8.827a19.58 19.58 0 002.682 2.282 16.975 16.975 0 001.145.742zM12 13.5a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
     </svg>
   );
 }
