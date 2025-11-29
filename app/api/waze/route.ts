@@ -56,6 +56,8 @@ export async function GET(request: NextRequest) {
     const cached = await redis.get<{ alerts: unknown[] }>(cacheKey);
     
     if (cached) {
+      const alertCount = cached.alerts?.length || 0;
+      console.log(`[Waze] Cache HIT - ${alertCount} alerts`);
       return NextResponse.json(cached, {
         headers: {
           "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
@@ -142,6 +144,8 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
+    const alertCount = data.alerts?.length || 0;
+    console.log(`[Waze] Cache MISS - Fetched ${alertCount} alerts from Waze API`);
 
     // Store in Redis cache
     try {

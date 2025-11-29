@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { WazeAlert, MapBounds } from "@/types/waze";
+import type { SpeedCamera } from "@/types/speedcamera";
+import type { MapBounds } from "@/types/waze";
 
-interface UseWazeAlertsOptions {
+interface UseSpeedCamerasOptions {
   bounds: MapBounds | null;
   refreshInterval?: number; // milliseconds
   debounceMs?: number;
-  minMovementThreshold?: number; // percentage of viewport that must change (0-1)
-  maxRequestsPerMinute?: number;
+  minMovementThreshold?: number;
+  enabled?: boolean;
   minZoomLevel?: number; // minimum zoom level to fetch (prevents overloading servers when zoomed out)
 }
 
@@ -20,27 +21,26 @@ function calculateBoundsOverlap(a: MapBounds, b: MapBounds): number {
   const intersectTop = Math.min(a.north, b.north);
 
   if (intersectLeft >= intersectRight || intersectBottom >= intersectTop) {
-    return 0; // No overlap
+    return 0;
   }
 
   const intersectArea = (intersectRight - intersectLeft) * (intersectTop - intersectBottom);
   const aArea = (a.east - a.west) * (a.north - a.south);
   const bArea = (b.east - b.west) * (b.north - b.south);
   
-  // Return overlap as percentage of the smaller bounds
   const smallerArea = Math.min(aArea, bArea);
   return smallerArea > 0 ? intersectArea / smallerArea : 0;
 }
 
-export function useWazeAlerts({
+export function useSpeedCameras({
   bounds,
-  refreshInterval = 60000, // 60 seconds
-  debounceMs = 500, // 500ms - fast response, server caching handles the rest
-  minMovementThreshold = 0.15, // Fetch if viewport changed by 15%+ (more responsive)
-  maxRequestsPerMinute = 12, // Server caching means we can be more aggressive
+  refreshInterval = 300000, // 5 minutes (cameras don't change often)
+  debounceMs = 800, // 800ms - slightly longer than Waze since cameras are less urgent
+  minMovementThreshold = 0.25, // Fetch if viewport changed by 25%+
+  enabled = true,
   minZoomLevel = 10, // Don't fetch when zoomed out past city level to avoid overloading servers
-}: UseWazeAlertsOptions) {
-  const [alerts, setAlerts] = useState<WazeAlert[]>([]);
+}: UseSpeedCamerasOptions) {
+  const [cameras, setCameras] = useState<SpeedCamera[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -53,11 +53,10 @@ export function useWazeAlerts({
   const backoffUntil = useRef<number>(0);
   const consecutiveErrors = useRef<number>(0);
 
-  // Check if we can make a request (rate limiting)
+  // Check if we can make a request
   const canMakeRequest = useCallback((): boolean => {
     const now = Date.now();
     
-    // Check if we're in a backoff period
     if (now < backoffUntil.current) {
       return false;
     }
@@ -67,58 +66,52 @@ export function useWazeAlerts({
       (ts) => now - ts < 60000
     );
     
-    // Check if we've exceeded the rate limit
-    return requestTimestamps.current.length < maxRequestsPerMinute;
-  }, [maxRequestsPerMinute]);
+    // Allow max 6 requests per minute (server caching handles dedup)
+    return requestTimestamps.current.length < 6;
+  }, []);
 
-  // Record a request timestamp
   const recordRequest = useCallback(() => {
     requestTimestamps.current.push(Date.now());
   }, []);
 
-  // Handle rate limit errors with exponential backoff
   const handleRateLimitError = useCallback(() => {
     consecutiveErrors.current += 1;
-    // Exponential backoff: 30s, 60s, 120s, 240s (max 4 min)
-    const backoffTime = Math.min(30000 * Math.pow(2, consecutiveErrors.current - 1), 240000);
+    const backoffTime = Math.min(60000 * Math.pow(2, consecutiveErrors.current - 1), 300000);
     backoffUntil.current = Date.now() + backoffTime;
-    console.warn(`Waze rate limited. Backing off for ${backoffTime / 1000}s`);
+    console.warn(`OSM rate limited. Backing off for ${backoffTime / 1000}s`);
   }, []);
 
-  // Reset error count on successful request
   const handleSuccess = useCallback(() => {
     consecutiveErrors.current = 0;
   }, []);
 
-  // Check if bounds have changed enough to warrant a new fetch
   const hasSignificantMovement = useCallback(
     (newBounds: MapBounds): boolean => {
       if (!lastFetchedBounds.current) return true;
       
       const overlap = calculateBoundsOverlap(lastFetchedBounds.current, newBounds);
-      // If overlap is less than (1 - threshold), we've moved enough
       return overlap < (1 - minMovementThreshold);
     },
     [minMovementThreshold]
   );
 
-  const fetchAlerts = useCallback(
+  const fetchCameras = useCallback(
     async (currentBounds: MapBounds, force: boolean = false) => {
+      if (!enabled) return;
+      
       // Check zoom level - don't fetch if zoomed out too far
       if (currentBounds.zoom !== undefined && currentBounds.zoom < minZoomLevel) {
-        console.log(`Waze request skipped: zoom level ${currentBounds.zoom.toFixed(1)} below minimum ${minZoomLevel}`);
+        console.log(`OSM request skipped: zoom level ${currentBounds.zoom.toFixed(1)} below minimum ${minZoomLevel}`);
         return;
       }
-
-      // Check rate limiting
+      
       if (!canMakeRequest()) {
-        console.log("Waze request skipped: rate limit");
+        console.log("OSM request skipped: rate limit");
         return;
       }
 
-      // Check if bounds changed enough (unless forced)
       if (!force && !hasSignificantMovement(currentBounds)) {
-        console.log("Waze request skipped: insufficient movement");
+        console.log("OSM request skipped: insufficient movement");
         return;
       }
 
@@ -134,20 +127,19 @@ export function useWazeAlerts({
           top: currentBounds.north.toString(),
         });
 
-        const response = await fetch(`/api/waze?${params}`);
+        const response = await fetch(`/api/speedcameras?${params}`);
 
         if (response.status === 429) {
-          // Rate limited by server
           handleRateLimitError();
           throw new Error("Rate limited");
         }
 
         if (!response.ok) {
-          throw new Error("Failed to fetch Waze alerts");
+          throw new Error("Failed to fetch speed cameras");
         }
 
         const data = await response.json();
-        setAlerts(data.alerts || []);
+        setCameras(data.cameras || []);
         lastFetchedBounds.current = currentBounds;
         handleSuccess();
       } catch (err) {
@@ -156,24 +148,21 @@ export function useWazeAlerts({
         setLoading(false);
       }
     },
-    [canMakeRequest, hasSignificantMovement, recordRequest, handleRateLimitError, handleSuccess, minZoomLevel]
+    [enabled, canMakeRequest, hasSignificantMovement, recordRequest, handleRateLimitError, handleSuccess, minZoomLevel]
   );
 
   // Debounced fetch when bounds change
   useEffect(() => {
-    if (!bounds) return;
+    if (!bounds || !enabled) return;
 
-    // Clear existing timer
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
     }
 
-    // Store the latest bounds for periodic refresh
     lastBounds.current = bounds;
 
-    // Debounce the fetch - only fetch if movement is significant
     debounceTimer.current = setTimeout(() => {
-      fetchAlerts(bounds);
+      fetchCameras(bounds);
     }, debounceMs);
 
     return () => {
@@ -181,23 +170,26 @@ export function useWazeAlerts({
         clearTimeout(debounceTimer.current);
       }
     };
-  }, [bounds, debounceMs, fetchAlerts]);
+  }, [bounds, debounceMs, fetchCameras, enabled]);
 
-  // Periodic refresh - uses force=true to bypass movement check
+  // Periodic refresh
   useEffect(() => {
+    if (!enabled) return;
+    
     const interval = setInterval(() => {
       if (lastBounds.current) {
-        fetchAlerts(lastBounds.current, true);
+        fetchCameras(lastBounds.current, true);
       }
     }, refreshInterval);
 
     return () => clearInterval(interval);
-  }, [refreshInterval, fetchAlerts]);
+  }, [refreshInterval, fetchCameras, enabled]);
 
   return {
-    alerts,
+    cameras,
     loading,
     error,
-    refetch: () => bounds && fetchAlerts(bounds, true),
+    refetch: () => bounds && fetchCameras(bounds, true),
   };
 }
+

@@ -28,5 +28,6 @@ export interface MapBounds {
   south: number;
   east: number;
   west: number;
+  zoom?: number;
 }
 

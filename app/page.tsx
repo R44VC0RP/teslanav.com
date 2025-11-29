@@ -5,6 +5,7 @@ import { Map, type MapRef } from "@/components/Map";
 import { SettingsModal } from "@/components/SettingsModal";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
+import { useSpeedCameras } from "@/hooks/useSpeedCameras";
 import { useReverseGeocode } from "@/hooks/useReverseGeocode";
 import type { MapBounds } from "@/types/waze";
 import Image from "next/image";
@@ -29,6 +30,7 @@ export default function Home() {
   const [isCentered, setIsCentered] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showWazeAlerts, setShowWazeAlerts] = useState(true);
+  const [showSpeedCameras, setShowSpeedCameras] = useState(true);
   const [showTraffic, setShowTraffic] = useState(true);
   const [useSatellite, setUseSatellite] = useState(false);
   const [showAvatarPulse, setShowAvatarPulse] = useState(true);
@@ -36,6 +38,7 @@ export default function Home() {
 
   const { latitude, longitude, heading, effectiveHeading, loading: geoLoading, error: geoError } = useGeolocation();
   const { alerts, loading: alertsLoading } = useWazeAlerts({ bounds });
+  const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
   const { placeName, loading: placeLoading } = useReverseGeocode(latitude, longitude);
 
   // Load settings from localStorage on mount
@@ -182,6 +185,7 @@ export default function Home() {
         zoom={14}
         isDarkMode={effectiveDarkMode}
         alerts={filteredAlerts}
+        speedCameras={showSpeedCameras ? cameras : []}
         onBoundsChange={handleBoundsChange}
         onCenteredChange={handleCenteredChange}
         userLocation={latitude && longitude ? { latitude, longitude, heading, effectiveHeading } : null}
@@ -429,6 +433,8 @@ export default function Home() {
         isDarkMode={effectiveDarkMode}
         showWazeAlerts={showWazeAlerts}
         onToggleWazeAlerts={setShowWazeAlerts}
+        showSpeedCameras={showSpeedCameras}
+        onToggleSpeedCameras={setShowSpeedCameras}
         showTraffic={showTraffic}
         onToggleTraffic={handleToggleTraffic}
         useSatellite={useSatellite}

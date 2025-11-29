@@ -10,6 +10,8 @@ interface SettingsModalProps {
   isDarkMode: boolean;
   showWazeAlerts: boolean;
   onToggleWazeAlerts: (value: boolean) => void;
+  showSpeedCameras: boolean;
+  onToggleSpeedCameras: (value: boolean) => void;
   showTraffic: boolean;
   onToggleTraffic: (value: boolean) => void;
   useSatellite: boolean;
@@ -24,6 +26,8 @@ export function SettingsModal({
   isDarkMode,
   showWazeAlerts,
   onToggleWazeAlerts,
+  showSpeedCameras,
+  onToggleSpeedCameras,
   showTraffic,
   onToggleTraffic,
   useSatellite,
@@ -174,6 +178,33 @@ export function SettingsModal({
                       // Track Waze alerts toggle
                       posthog.capture("waze_alerts_toggled", {
                         alerts_enabled: value,
+                      });
+                    }}
+                    isDarkMode={isDarkMode}
+                  />
+                </div>
+
+                {/* Speed Cameras Toggle */}
+                <div className={`
+                  flex items-center justify-between p-5 rounded-xl
+                  ${isDarkMode ? "bg-white/5" : "bg-black/5"}
+                `}>
+                  <div className="flex items-center gap-4">
+                    <span className="text-3xl">📷</span>
+                    <div>
+                      <div className="text-lg font-medium">Speed Cameras</div>
+                      <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                        Speed & red light cameras from OpenStreetMap
+                      </div>
+                    </div>
+                  </div>
+                  <Toggle
+                    enabled={showSpeedCameras}
+                    onToggle={(value) => {
+                      onToggleSpeedCameras(value);
+                      // Track speed cameras toggle
+                      posthog.capture("speed_cameras_toggled", {
+                        cameras_enabled: value,
                       });
                     }}
                     isDarkMode={isDarkMode}

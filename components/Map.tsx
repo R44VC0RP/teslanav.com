@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallba
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { WazeAlert, MapBounds } from "@/types/waze";
+import type { SpeedCamera } from "@/types/speedcamera";
 import posthog from "posthog-js";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -13,6 +14,7 @@ interface MapProps {
   zoom?: number;
   isDarkMode?: boolean;
   alerts?: WazeAlert[];
+  speedCameras?: SpeedCamera[];
   onBoundsChange?: (bounds: MapBounds) => void;
   onCenteredChange?: (isCentered: boolean) => void;
   userLocation?: { 
@@ -49,6 +51,13 @@ const ALERT_ICONS: Record<string, string> = {
   HAZARD: "/icons/hazard.svg",
   ROAD_CLOSED: "/icons/closure.svg",
   JAM: "/icons/object-on-road.svg",
+};
+
+// Speed camera icons
+const CAMERA_ICONS: Record<string, string> = {
+  speed_camera: "/icons/speed-camera.svg",
+  red_light_camera: "/icons/red-light-camera.svg",
+  average_speed_camera: "/icons/speed-camera.svg", // Use same icon as speed camera
 };
 
 // Severity order for clustering (higher = more severe)
@@ -163,6 +172,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     zoom = 13,
     isDarkMode = false,
     alerts = [],
+    speedCameras = [],
     onBoundsChange,
     onCenteredChange,
     userLocation,
@@ -176,6 +186,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const cameraMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const userMarkerElRef = useRef<HTMLDivElement | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -226,7 +237,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       
       map.current?.flyTo({
         center: [lng, lat],
-        zoom: map.current.getZoom(),
+        zoom: 15, // Reset to default zoom level
         duration: 800,
         essential: true,
       });
@@ -382,6 +393,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
             south: bounds.getSouth(),
             east: bounds.getEast(),
             west: bounds.getWest(),
+            zoom: map.current.getZoom(),
           });
         }
       }
@@ -449,6 +461,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
             south: bounds.getSouth(),
             east: bounds.getEast(),
             west: bounds.getWest(),
+            zoom: map.current.getZoom(),
           });
         }
       }
@@ -845,6 +858,99 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       });
     });
   }, [alerts, mapLoaded, isDarkMode]);
+
+  // Update speed camera markers
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    // Clear existing camera markers
+    cameraMarkersRef.current.forEach((marker) => marker.remove());
+    cameraMarkersRef.current = [];
+
+    // Theme-aware colors
+    const popupBg = isDarkMode ? "#1a1a1a" : "white";
+    const popupText = isDarkMode ? "#e5e5e5" : "#374151";
+    const popupSubtext = isDarkMode ? "#9ca3af" : "#6b7280";
+
+    speedCameras.forEach((camera) => {
+      const el = document.createElement("div");
+      el.className = "camera-marker";
+
+      const icon = CAMERA_ICONS[camera.type] || CAMERA_ICONS.speed_camera;
+      const cameraTypeLabel = camera.type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+      el.innerHTML = `
+        <div class="camera-pin" style="
+          position: relative;
+          cursor: pointer;
+          transition: transform 0.15s ease-out;
+        ">
+          <div class="camera-pin-body" style="
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          ">
+            <img src="${icon}" alt="${cameraTypeLabel}" style="width: 36px; height: auto;" />
+          </div>
+        </div>
+      `;
+
+      // Build popup content
+      let popupDetails = "";
+      if (camera.maxspeed) {
+        popupDetails += `<div class="camera-popup-speed" style="color: ${popupText}; font-weight: 600; font-size: 14px;">Limit: ${camera.maxspeed} mph</div>`;
+      }
+      if (camera.direction) {
+        popupDetails += `<div class="camera-popup-direction" style="color: ${popupSubtext}; font-size: 11px; text-transform: capitalize;">Direction: ${camera.direction}</div>`;
+      }
+
+      const popupContent = `
+        <div class="alert-popup" style="background: ${popupBg}; color: ${popupText};">
+          <div class="alert-popup-header" style="color: #ef4444; margin-bottom: 4px;">
+            📷 ${cameraTypeLabel}
+          </div>
+          ${popupDetails}
+          <div class="camera-popup-source" style="color: ${popupSubtext}; font-size: 10px; margin-top: 6px;">
+            Source: OpenStreetMap
+          </div>
+        </div>
+      `;
+
+      const popup = new mapboxgl.Popup({
+        offset: 20,
+        closeButton: false,
+        maxWidth: "200px",
+        className: `alert-popup-container ${isDarkMode ? "dark" : ""}`,
+      }).setHTML(popupContent);
+
+      const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
+        .setLngLat([camera.location.lon, camera.location.lat])
+        .setPopup(popup)
+        .addTo(map.current!);
+
+      cameraMarkersRef.current.push(marker);
+
+      // Hover effect
+      el.addEventListener("mouseenter", () => {
+        const pinEl = el.querySelector(".camera-pin") as HTMLElement;
+        if (pinEl) pinEl.style.transform = "scale(1.15) translateY(-3px)";
+      });
+
+      el.addEventListener("mouseleave", () => {
+        const pinEl = el.querySelector(".camera-pin") as HTMLElement;
+        if (pinEl) pinEl.style.transform = "scale(1)";
+      });
+
+      // Track clicks
+      el.addEventListener("click", () => {
+        posthog.capture("speed_camera_clicked", {
+          camera_type: camera.type,
+          has_maxspeed: !!camera.maxspeed,
+          maxspeed: camera.maxspeed,
+        });
+      });
+    });
+  }, [speedCameras, mapLoaded, isDarkMode]);
 
   return (
     <>
