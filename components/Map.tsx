@@ -185,6 +185,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   // Track if we should auto-center (user hasn't panned away)
   const isAutoCentering = useRef(true);
   const userInteractingRef = useRef(false);
+  const isZoomingRef = useRef(false);
   
   // Animation state for smooth interpolation
   const animationRef = useRef<number | null>(null);
@@ -247,9 +248,13 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       map.current?.easeTo({ bearing: 0, duration: 500 });
     },
     zoomIn: () => {
+      // Set zooming flag immediately to prevent auto-centering from interfering
+      isZoomingRef.current = true;
       map.current?.zoomIn({ duration: 300 });
     },
     zoomOut: () => {
+      // Set zooming flag immediately to prevent auto-centering from interfering
+      isZoomingRef.current = true;
       map.current?.zoomOut({ duration: 300 });
     },
   }));
@@ -275,8 +280,9 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         currentPositionRef.current = { lng: newLng, lat: newLat };
         userMarkerRef.current.setLngLat([newLng, newLat]);
         
-        // Smooth camera follow when auto-centering is enabled and user isn't dragging
-        if (isAutoCentering.current && !userInteractingRef.current && map.current) {
+        // Smooth camera follow when auto-centering is enabled and user isn't interacting
+        // Skip if user is dragging or zooming to avoid fighting with map interactions
+        if (isAutoCentering.current && !userInteractingRef.current && !isZoomingRef.current && map.current) {
           const mapCenter = map.current.getCenter();
           const targetCenterLng = lerp(mapCenter.lng, newLng, CAMERA_FOLLOW_SPEED);
           const targetCenterLat = lerp(mapCenter.lat, newLat, CAMERA_FOLLOW_SPEED);
@@ -392,6 +398,45 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     });
 
     map.current.on("dragend", () => {
+      userInteractingRef.current = false;
+    });
+
+    // Track zoom interactions to prevent auto-centering from fighting with zoom animations
+    map.current.on("zoomstart", () => {
+      isZoomingRef.current = true;
+    });
+
+    map.current.on("zoomend", () => {
+      isZoomingRef.current = false;
+    });
+
+    // Track touch interactions for better mobile experience
+    // On touchmove, disable auto-centering since user is panning
+    map.current.on("touchstart", () => {
+      userInteractingRef.current = true;
+    });
+
+    map.current.on("touchmove", () => {
+      // Disable auto-centering when user pans via touch
+      if (isAutoCentering.current) {
+        isAutoCentering.current = false;
+        onCenteredChange?.(false);
+      }
+    });
+
+    map.current.on("touchend", () => {
+      // Small delay to allow any animations to start before resuming auto-center
+      setTimeout(() => {
+        userInteractingRef.current = false;
+      }, 100);
+    });
+
+    // Also track mouse interactions for desktop
+    map.current.on("mousedown", () => {
+      userInteractingRef.current = true;
+    });
+
+    map.current.on("mouseup", () => {
       userInteractingRef.current = false;
     });
 
