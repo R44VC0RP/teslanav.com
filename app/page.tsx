@@ -44,6 +44,10 @@ export default function Home() {
       if (savedSatellite !== null) {
         setUseSatellite(savedSatellite === "true");
       }
+      const savedTraffic = localStorage.getItem("teslanav-traffic");
+      if (savedTraffic !== null) {
+        setShowTraffic(savedTraffic === "true");
+      }
     }
   }, []);
 
@@ -52,6 +56,14 @@ export default function Home() {
     setUseSatellite(value);
     if (typeof window !== "undefined") {
       localStorage.setItem("teslanav-satellite", value.toString());
+    }
+  }, []);
+
+  // Save traffic preference to localStorage
+  const handleToggleTraffic = useCallback((value: boolean) => {
+    setShowTraffic(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("teslanav-traffic", value.toString());
     }
   }, []);
 
@@ -417,7 +429,7 @@ export default function Home() {
         showWazeAlerts={showWazeAlerts}
         onToggleWazeAlerts={setShowWazeAlerts}
         showTraffic={showTraffic}
-        onToggleTraffic={setShowTraffic}
+        onToggleTraffic={handleToggleTraffic}
         useSatellite={useSatellite}
         onToggleSatellite={handleToggleSatellite}
         showAvatarPulse={showAvatarPulse}

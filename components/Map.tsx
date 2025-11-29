@@ -477,6 +477,9 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     const mapInstance = map.current;
 
     const addTrafficLayer = () => {
+      // Safety check - make sure style is loaded and map still exists
+      if (!mapInstance.isStyleLoaded()) return;
+      
       // Check if source already exists
       if (!mapInstance.getSource("mapbox-traffic")) {
         mapInstance.addSource("mapbox-traffic", {
@@ -523,13 +526,20 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       }
     };
 
+    // Handler for when style loads/changes - re-add traffic if enabled
+    const handleStyleLoad = () => {
+      if (showTraffic) {
+        addTrafficLayer();
+      }
+    };
+
     if (showTraffic) {
       // Wait for style to be loaded before adding layer
       if (mapInstance.isStyleLoaded()) {
         addTrafficLayer();
-      } else {
-        mapInstance.once("styledata", addTrafficLayer);
       }
+      // Also listen for future style changes to re-add the layer
+      mapInstance.on("style.load", handleStyleLoad);
     } else {
       if (mapInstance.isStyleLoaded()) {
         removeTrafficLayer();
@@ -537,9 +547,9 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     }
 
     return () => {
-      mapInstance.off("styledata", addTrafficLayer);
+      mapInstance.off("style.load", handleStyleLoad);
     };
-  }, [showTraffic, mapLoaded, isDarkMode]);
+  }, [showTraffic, mapLoaded, isDarkMode, useSatellite]);
 
   // Create/update user location marker
   useEffect(() => {
