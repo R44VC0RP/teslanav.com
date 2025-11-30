@@ -43,6 +43,12 @@ export default function RootLayout({
             strategy="beforeInteractive"
           />
         )}
+        <Script
+          data-website-id="dfid_RO5g2rWwS6cGfyTS7wGGW"
+          data-domain="teslanav.com"
+          src="/js/script.js"
+          strategy="afterInteractive"
+        />
       </head>
       <body
         className={`${geistSans.variable} antialiased overflow-hidden`}

@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   /* config options here */
   async rewrites() {
     return [
+      // PostHog rewrites
       {
         source: "/ingest/static/:path*",
         destination: "https://us-assets.i.posthog.com/static/:path*",
@@ -11,6 +12,15 @@ const nextConfig: NextConfig = {
       {
         source: "/ingest/:path*",
         destination: "https://us.i.posthog.com/:path*",
+      },
+      // DataFast rewrites
+      {
+        source: "/js/script.js",
+        destination: "https://datafa.st/js/script.js",
+      },
+      {
+        source: "/api/events",
+        destination: "https://datafa.st/api/events",
       },
     ];
   },
