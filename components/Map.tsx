@@ -150,6 +150,46 @@ function getAngleDiff(from: number, to: number): number {
   return diff > 180 ? diff - 360 : diff;
 }
 
+// Calculate night overlay opacity based on time of day (0 = no overlay, 1 = full dark)
+// Uses a smooth curve: darkest at midnight, brightest at noon
+function getNightOverlayOpacity(): number {
+  const hour = new Date().getHours();
+  const minute = new Date().getMinutes();
+  const timeDecimal = hour + minute / 60;
+  
+  // Map time to darkness level:
+  // 0-5am: dark (0.4-0.3)
+  // 5-7am: sunrise transition (0.3-0)
+  // 7am-5pm: day (0)
+  // 5-7pm: sunset transition (0-0.2)
+  // 7-10pm: evening (0.2-0.35)
+  // 10pm-midnight: night (0.35-0.4)
+  
+  if (timeDecimal >= 7 && timeDecimal < 17) {
+    // Daytime: no overlay
+    return 0;
+  } else if (timeDecimal >= 5 && timeDecimal < 7) {
+    // Sunrise: fade from dark to light
+    const progress = (timeDecimal - 5) / 2;
+    return 0.3 * (1 - progress);
+  } else if (timeDecimal >= 17 && timeDecimal < 19) {
+    // Sunset: fade from light to dark
+    const progress = (timeDecimal - 17) / 2;
+    return 0.2 * progress;
+  } else if (timeDecimal >= 19 && timeDecimal < 22) {
+    // Evening: gradually darker
+    const progress = (timeDecimal - 19) / 3;
+    return 0.2 + 0.15 * progress;
+  } else if (timeDecimal >= 22 || timeDecimal < 2) {
+    // Late night: darkest
+    return 0.4;
+  } else {
+    // Early morning (2-5am): slightly lighter than midnight
+    const progress = (timeDecimal - 2) / 3;
+    return 0.4 - 0.1 * progress;
+  }
+}
+
 // Hide POI and place labels from the map
 function hidePlaceLabels(mapInstance: mapboxgl.Map) {
   const style = mapInstance.getStyle();
@@ -213,6 +253,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const otherUserMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [nightOverlayOpacity, setNightOverlayOpacity] = useState(0);
   const initialCenterSet = useRef(false);
   const isFollowMode = useRef(followMode);
   
@@ -399,6 +440,24 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       }
     };
   }, [animatePosition]);
+
+  // Update night overlay opacity based on time of day (satellite mode only)
+  useEffect(() => {
+    if (!useSatellite) {
+      setNightOverlayOpacity(0);
+      return;
+    }
+
+    // Set initial value
+    setNightOverlayOpacity(getNightOverlayOpacity());
+
+    // Update every minute
+    const interval = setInterval(() => {
+      setNightOverlayOpacity(getNightOverlayOpacity());
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [useSatellite]);
 
   // Initialize map
   useEffect(() => {
@@ -1747,6 +1806,19 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         className="w-full h-full"
         style={{ position: "absolute", inset: 0 }}
       />
+      {/* Night overlay for satellite map - darkens based on time of day */}
+      {useSatellite && nightOverlayOpacity > 0 && (
+        <div
+          className="pointer-events-none"
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundColor: `rgba(0, 0, 20, ${nightOverlayOpacity})`,
+            transition: "background-color 60s ease-in-out",
+            zIndex: 1,
+          }}
+        />
+      )}
       <style jsx global>{`
         .user-marker {
           z-index: 10 !important;
