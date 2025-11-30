@@ -3,6 +3,26 @@ import { trackApiUsage } from "@/lib/redis";
 
 const LOCATIONIQ_TOKEN = process.env.LOCATION_IQ_TOKEN || "";
 
+// LocationIQ API response type
+interface LocationIQPlace {
+  place_id: string;
+  lat: string;
+  lon: string;
+  display_name: string;
+  name?: string;
+  address?: {
+    name?: string;
+    house_number?: string;
+    road?: string;
+    neighbourhood?: string;
+    suburb?: string;
+    city?: string;
+    town?: string;
+    village?: string;
+    state?: string;
+  };
+}
+
 /**
  * Calculate distance between two points using Haversine formula
  * Returns distance in kilometers
@@ -81,8 +101,8 @@ export async function GET(request: NextRequest) {
       // NOT using bounded=1 so we get results from everywhere, sorted by relevance
     }
 
-    let response = await fetch(`${baseUrl}?${params.toString()}`);
-    let data: unknown[] = [];
+    const response = await fetch(`${baseUrl}?${params.toString()}`);
+    let data: LocationIQPlace[] = [];
 
     // LocationIQ returns 404 with "Unable to geocode" when no results found
     if (response.ok) {
@@ -99,24 +119,7 @@ export async function GET(request: NextRequest) {
     trackApiUsage("geocoding").catch(console.error);
 
     // Transform LocationIQ response to match our expected format
-    let features = (Array.isArray(data) ? data : []).map((place: {
-      place_id: string;
-      lat: string;
-      lon: string;
-      display_name: string;
-      name?: string;
-      address?: {
-        name?: string;
-        house_number?: string;
-        road?: string;
-        neighbourhood?: string;
-        suburb?: string;
-        city?: string;
-        town?: string;
-        village?: string;
-        state?: string;
-      };
-    }) => {
+    let features = (Array.isArray(data) ? data : []).map((place) => {
       // Build a nice short name from the address components
       const addr = place.address || {};
       const shortName = place.name || 
