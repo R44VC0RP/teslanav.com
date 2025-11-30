@@ -71,6 +71,8 @@ export function useWazeAlerts({
   const [alerts, setAlerts] = useState<WazeAlert[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Stable state for dev visualization (only updates when cache actually changes)
+  const [cachedTileBounds, setCachedTileBounds] = useState<Array<{ bounds: MapBounds; ageMs: number }>>([]);
   
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const tileCache = useRef<CachedTile[]>([]); // Cache of fetched tiles with TTL
@@ -81,13 +83,29 @@ export function useWazeAlerts({
   const backoffUntil = useRef<number>(0);
   const consecutiveErrors = useRef<number>(0);
 
+  // Update the stable state for dev visualization
+  const updateCachedTileBoundsState = useCallback(() => {
+    const now = Date.now();
+    setCachedTileBounds(
+      tileCache.current.map((tile) => ({
+        bounds: tile.bounds,
+        ageMs: now - tile.fetchedAt,
+      }))
+    );
+  }, []);
+
   // Clean up expired tiles from cache
   const cleanExpiredTiles = useCallback(() => {
     const now = Date.now();
+    const before = tileCache.current.length;
     tileCache.current = tileCache.current.filter(
       (tile) => now - tile.fetchedAt < cacheTTL
     );
-  }, [cacheTTL]);
+    // Update state if tiles were removed
+    if (tileCache.current.length !== before) {
+      updateCachedTileBoundsState();
+    }
+  }, [cacheTTL, updateCachedTileBoundsState]);
 
   // Find a valid cached tile that contains the viewport
   const findCachedTile = useCallback(
@@ -234,6 +252,9 @@ export function useWazeAlerts({
           tileCache.current = tileCache.current.slice(-10);
         }
         
+        // Update dev visualization state
+        updateCachedTileBoundsState();
+        
         // Update alerts (merge from all overlapping cached tiles)
         setAlerts(getAlertsFromCache(viewportBounds));
         handleSuccess();
@@ -243,7 +264,7 @@ export function useWazeAlerts({
         setLoading(false);
       }
     },
-    [canMakeRequest, findCachedTile, getAlertsFromCache, cleanExpiredTiles, recordRequest, handleRateLimitError, handleSuccess, minZoomLevel, bufferMultiplier]
+    [canMakeRequest, findCachedTile, getAlertsFromCache, cleanExpiredTiles, updateCachedTileBoundsState, recordRequest, handleRateLimitError, handleSuccess, minZoomLevel, bufferMultiplier]
   );
 
   // Debounced fetch when bounds change
@@ -281,22 +302,12 @@ export function useWazeAlerts({
     return () => clearInterval(interval);
   }, [refreshInterval, fetchAlerts]);
 
-  // Get current cache state for dev visualization
-  const getCachedTileBounds = useCallback((): Array<{ bounds: MapBounds; ageMs: number }> => {
-    cleanExpiredTiles();
-    const now = Date.now();
-    return tileCache.current.map((tile) => ({
-      bounds: tile.bounds,
-      ageMs: now - tile.fetchedAt,
-    }));
-  }, [cleanExpiredTiles]);
-
   return {
     alerts,
     loading,
     error,
     refetch: () => bounds && fetchAlerts(bounds, true),
-    // Dev mode helpers
-    getCachedTileBounds,
+    // Dev mode - stable reference that only updates when cache changes
+    cachedTileBounds,
   };
 }

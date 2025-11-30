@@ -94,7 +94,7 @@ export default function Home() {
   const latitude = isSimulating && simulatedPosition ? simulatedPosition.lat : realLatitude;
   const longitude = isSimulating && simulatedPosition ? simulatedPosition.lng : realLongitude;
   const effectiveHeading = isSimulating && simulatedPosition ? simulatedPosition.heading : realEffectiveHeading;
-  const { alerts, loading: alertsLoading, getCachedTileBounds } = useWazeAlerts({ bounds });
+  const { alerts, loading: alertsLoading, cachedTileBounds } = useWazeAlerts({ bounds });
   const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
   const { placeName, loading: placeLoading } = useReverseGeocode(latitude, longitude);
 
@@ -707,7 +707,7 @@ export default function Home() {
         showAvatarPulse={showAvatarPulse}
         showAlertRadius={isDevMode && policeAlertDistance > 0}
         alertRadiusMeters={policeAlertDistance}
-        debugTileBounds={isDevMode ? getCachedTileBounds() : undefined}
+        debugTileBounds={isDevMode ? cachedTileBounds : undefined}
       />
 
       {/* Context Menu - Shows on long press */}
