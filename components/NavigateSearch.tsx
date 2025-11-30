@@ -4,10 +4,9 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import posthog from "posthog-js";
 
 interface SearchResult {
-  id: string; // mapbox_id for retrieving coordinates
+  id: string;
   place_name: string;
-  center?: [number, number]; // [lng, lat] - only populated after selection
-  address?: string;
+  center: [number, number]; // [lng, lat] - now included directly from Geocoding API v6!
   text: string;
 }
 
@@ -28,12 +27,10 @@ export function NavigateSearch({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selecting, setSelecting] = useState(false); // Loading state for coordinate fetch
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
-  const sessionTokenRef = useRef<string | null>(null); // Track session token for billing
 
   // Close on click outside
   useEffect(() => {
@@ -61,7 +58,7 @@ export function NavigateSearch({
     }
   }, [isOpen]);
 
-  // Search with debounce - only fetches suggestions (no coordinates = saves API calls!)
+  // Search with debounce - Geocoding API v6 returns coordinates directly!
   const searchPlaces = useCallback(async (searchQuery: string) => {
     if (!searchQuery.trim() || searchQuery.length < 2) {
       setResults([]);
@@ -81,8 +78,6 @@ export function NavigateSearch({
       if (!response.ok) throw new Error("Search failed");
 
       const data = await response.json();
-      // Store session token for efficient billing when retrieving coordinates
-      sessionTokenRef.current = data.sessionToken || null;
       setResults(data.features || []);
       setSelectedIndex(-1);
     } catch (error) {
@@ -106,48 +101,23 @@ export function NavigateSearch({
     }, 300);
   };
 
-  // Handle selection - fetches coordinates only when user selects (saves ~10 API calls per search!)
-  const handleSelect = async (result: SearchResult) => {
-    setSelecting(true);
-    
-    try {
-      // Fetch coordinates for the selected result
-      const response = await fetch('/api/geocode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mapbox_id: result.id,
-          session_token: sessionTokenRef.current,
-        }),
-      });
+  // Handle selection - coordinates already included from Geocoding API v6!
+  const handleSelect = (result: SearchResult) => {
+    const [lng, lat] = result.center;
 
-      if (!response.ok) throw new Error("Failed to get coordinates");
+    posthog.capture("destination_selected", {
+      place_name: result.place_name,
+      place_text: result.text,
+    });
 
-      const data = await response.json();
-      const [lng, lat] = data.center;
-
-      posthog.capture("destination_selected", {
-        place_name: result.place_name,
-        place_text: result.text,
-      });
-
-      onSelectDestination(lng, lat, result.text);
-      setIsOpen(false);
-      setQuery("");
-      setResults([]);
-      sessionTokenRef.current = null;
-    } catch (error) {
-      console.error("Failed to get coordinates:", error);
-      // Show error to user - could add toast notification here
-    } finally {
-      setSelecting(false);
-    }
+    onSelectDestination(lng, lat, result.text);
+    setIsOpen(false);
+    setQuery("");
+    setResults([]);
   };
 
   // Keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (selecting) return; // Prevent actions while fetching coordinates
-    
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1));
@@ -231,10 +201,10 @@ export function NavigateSearch({
             ${inputStyles}
           `}
         />
-        {(loading || selecting) && (
+        {loading && (
           <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin opacity-50" />
         )}
-        {query && !loading && !selecting && (
+        {query && !loading && (
           <button
             onClick={() => {
               setQuery("");

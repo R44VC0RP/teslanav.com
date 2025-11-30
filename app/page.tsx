@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Map, type MapRef } from "@/components/Map";
 import { SettingsModal } from "@/components/SettingsModal";
 import { FeedbackModal } from "@/components/FeedbackModal";
+import { ChangelogModal } from "@/components/ChangelogModal";
 import { NavigateSearch } from "@/components/NavigateSearch";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
@@ -1385,6 +1386,9 @@ export default function Home() {
         onClose={() => setShowFeedback(false)}
         isDarkMode={effectiveDarkMode}
       />
+
+      {/* Changelog Modal - Shows once per version */}
+      <ChangelogModal isDarkMode={effectiveDarkMode} />
 
       {/* Global styles for police alert animations */}
       <style jsx global>{`

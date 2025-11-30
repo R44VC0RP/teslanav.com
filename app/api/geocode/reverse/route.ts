@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { redis } from "@/lib/redis";
+import { redis, trackApiUsage } from "@/lib/redis";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 
@@ -51,6 +51,9 @@ export async function GET(request: NextRequest) {
     if (!response.ok) {
       throw new Error(`Mapbox API error: ${response.status}`);
     }
+
+    // Track API usage (only when actually calling Mapbox, not from cache)
+    trackApiUsage("reverse_geocoding").catch(console.error);
 
     const data = await response.json();
     

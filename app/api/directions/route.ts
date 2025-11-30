@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { trackApiUsage } from "@/lib/redis";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 
@@ -66,6 +67,9 @@ export async function GET(request: NextRequest) {
     if (!response.ok) {
       throw new Error(`Mapbox API error: ${response.status}`);
     }
+
+    // Track API usage
+    trackApiUsage("directions").catch(console.error);
 
     const data = await response.json();
 

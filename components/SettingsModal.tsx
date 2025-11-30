@@ -123,6 +123,34 @@ export function SettingsModal({
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
           <div className="max-w-lg mx-auto space-y-8">
+            {/* Sponsor Section */}
+            <a
+              href="https://buy.stripe.com/9B68wPg5wavU3Px3Tb7EQ0c"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => {
+                posthog.capture("sponsor_link_clicked");
+              }}
+              className={`
+                block p-5 rounded-xl border-2 border-dashed transition-all
+                ${isDarkMode 
+                  ? "border-pink-500/50 bg-pink-500/10 hover:border-pink-400 hover:bg-pink-500/20" 
+                  : "border-pink-400/50 bg-pink-50 hover:border-pink-500 hover:bg-pink-100"
+                }
+              `}
+            >
+              <div className="flex items-center gap-4">
+                <span className="text-3xl">❤️</span>
+                <div className="flex-1">
+                  <div className="text-lg font-semibold">Help Sponsor This Project</div>
+                  <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                    TeslaNav will always be free and ad-free. Your support helps keep it that way!
+                  </div>
+                </div>
+                <ExternalLinkIcon className={`w-5 h-5 flex-shrink-0 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`} />
+              </div>
+            </a>
+
             {/* Map Style Section */}
             <div>
               <h3 className={`text-base font-medium uppercase tracking-wider mb-4 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
@@ -476,6 +504,14 @@ function EmailIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+    </svg>
+  );
+}
+
+function ExternalLinkIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
     </svg>
   );
 }
