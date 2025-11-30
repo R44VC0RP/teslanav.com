@@ -10,7 +10,11 @@ interface ReverseGeocodeResult {
   error: string | null;
 }
 
-const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
+// Minimum time between API calls (30 seconds)
+const MIN_FETCH_INTERVAL_MS = 30000;
+
+// In-memory cache for the session (survives re-renders but not page refresh)
+const locationCache = new Map<string, { placeName: string; neighborhood: string | null; locality: string | null }>();
 
 export function useReverseGeocode(
   latitude: number | null,
@@ -22,73 +26,78 @@ export function useReverseGeocode(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Track last fetched coords to avoid duplicate requests
+  // Track last fetched coords and time to avoid duplicate/frequent requests
   const lastCoords = useRef<string | null>(null);
+  const lastFetchTime = useRef<number>(0);
 
   useEffect(() => {
-    if (!latitude || !longitude || !MAPBOX_TOKEN) return;
+    if (!latitude || !longitude) return;
 
-    // Round to 3 decimal places to avoid too many API calls for small movements
-    const roundedLat = Math.round(latitude * 1000) / 1000;
-    const roundedLng = Math.round(longitude * 1000) / 1000;
+    // Round to 2 decimal places (~1.1km grid) to reduce API calls
+    // This means we only fetch a new location name every ~1km of movement
+    const roundedLat = Math.round(latitude * 100) / 100;
+    const roundedLng = Math.round(longitude * 100) / 100;
     const coordKey = `${roundedLat},${roundedLng}`;
 
-    // Skip if we already fetched for these coords
+    // Skip if we already fetched for these coords (or close enough)
     if (lastCoords.current === coordKey) return;
+
+    // Check in-memory cache first
+    const cached = locationCache.get(coordKey);
+    if (cached) {
+      lastCoords.current = coordKey;
+      setPlaceName(cached.placeName);
+      setNeighborhood(cached.neighborhood);
+      setLocality(cached.locality);
+      return;
+    }
+
+    // Time-based throttle: don't fetch more than once per 30 seconds
+    const now = Date.now();
+    if (now - lastFetchTime.current < MIN_FETCH_INTERVAL_MS) {
+      return;
+    }
+
     lastCoords.current = coordKey;
+    lastFetchTime.current = now;
 
     const fetchPlaceName = async () => {
       setLoading(true);
       setError(null);
 
       try {
-        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?access_token=${MAPBOX_TOKEN}&types=neighborhood,locality,place&limit=1`;
+        // Use our cached API route instead of calling Mapbox directly
+        const response = await fetch(
+          `/api/geocode/reverse?lng=${longitude}&lat=${latitude}`
+        );
         
-        const response = await fetch(url);
         if (!response.ok) {
           throw new Error("Failed to fetch location name");
         }
 
         const data = await response.json();
         
-        if (data.features && data.features.length > 0) {
-          const feature = data.features[0];
-          
-          // Extract different levels of place names
-          let neighborhoodName: string | null = null;
-          let localityName: string | null = null;
-          let placeName: string | null = null;
+        // Extract a clean neighborhood/locality name from the full place name
+        const fullName = data.placeName || "";
+        const parts = fullName.split(",").map((p: string) => p.trim());
+        
+        // Usually: "Street Address, Neighborhood, City, State ZIP, Country"
+        // We want the neighborhood or city
+        const neighborhoodName = parts.length > 2 ? parts[1] : null;
+        const localityName = parts.length > 3 ? parts[2] : parts.length > 1 ? parts[1] : null;
+        const displayName = neighborhoodName || localityName || parts[0] || null;
 
-          // The main result
-          if (feature.place_type.includes("neighborhood")) {
-            neighborhoodName = feature.text;
-          } else if (feature.place_type.includes("locality")) {
-            localityName = feature.text;
-          } else if (feature.place_type.includes("place")) {
-            placeName = feature.text;
-          }
+        setNeighborhood(neighborhoodName);
+        setLocality(localityName);
+        setPlaceName(displayName);
 
-          // Also check context for additional info
-          if (feature.context) {
-            for (const ctx of feature.context) {
-              if (ctx.id.startsWith("neighborhood") && !neighborhoodName) {
-                neighborhoodName = ctx.text;
-              } else if (ctx.id.startsWith("locality") && !localityName) {
-                localityName = ctx.text;
-              } else if (ctx.id.startsWith("place") && !placeName) {
-                placeName = ctx.text;
-              }
-            }
-          }
-
-          setNeighborhood(neighborhoodName);
-          setLocality(localityName);
-          
-          // Set the best available name
-          const bestName = neighborhoodName || localityName || placeName || feature.place_name?.split(",")[0];
-          setPlaceName(bestName);
-        } else {
-          setPlaceName(null);
+        // Cache in memory for this session
+        if (displayName) {
+          locationCache.set(coordKey, {
+            placeName: displayName,
+            neighborhood: neighborhoodName,
+            locality: localityName,
+          });
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");

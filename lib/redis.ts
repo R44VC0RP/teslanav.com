@@ -12,6 +12,7 @@ export const CACHE_KEYS = {
   WAZE_RATE_LIMIT: "waze:ratelimit",
   OSM_CAMERAS: "osm:cameras:",
   OSM_RATE_LIMIT: "osm:ratelimit",
+  REVERSE_GEOCODE: "geocode:reverse:", // Format: geocode:reverse:{lat},{lng}
 } as const;
 
 // Cache TTLs in seconds
@@ -19,6 +20,7 @@ export const CACHE_TTL = {
   WAZE_ALERTS: 60, // 60 seconds for Waze alerts
   RATE_LIMIT_WINDOW: 60, // 1 minute window for rate limiting
   OSM_CAMERAS: 3600, // 1 hour for OSM cameras (they don't change often)
+  REVERSE_GEOCODE: 86400, // 24 hours for reverse geocode (locations don't change)
 } as const;
 
 // Global rate limit settings
