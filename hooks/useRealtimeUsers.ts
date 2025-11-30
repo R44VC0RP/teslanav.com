@@ -369,4 +369,3 @@ export function useRealtimeUsers({
     nearbyCount: otherUsersArray.length + 1, // +1 for self (delayed positions)
   };
 }
-
