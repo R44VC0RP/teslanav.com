@@ -108,6 +108,34 @@ export function ChangelogModal({ isDarkMode }: ChangelogModalProps) {
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-10 py-8">
           <div className="space-y-10">
+            {/* Sponsor Section */}
+            <a
+              href="https://buy.stripe.com/9B68wPg5wavU3Px3Tb7EQ0c"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => {
+                posthog.capture("sponsor_link_clicked", { source: "changelog" });
+              }}
+              className={`
+                block p-6 rounded-2xl border-2 border-dashed transition-all
+                ${isDarkMode 
+                  ? "border-pink-500/50 bg-pink-500/10 hover:border-pink-400 hover:bg-pink-500/20" 
+                  : "border-pink-400/50 bg-pink-50 hover:border-pink-500 hover:bg-pink-100"
+                }
+              `}
+            >
+              <div className="flex items-center gap-5">
+                <span className="text-4xl">❤️</span>
+                <div className="flex-1">
+                  <div className="text-xl font-semibold mb-1">Help Keep TeslaNav Free</div>
+                  <p className={`text-lg ${isDarkMode ? "text-gray-300" : "text-gray-600"}`}>
+                    TeslaNav will always be free and ad-free. Your support helps cover server costs and keeps development going!
+                  </p>
+                </div>
+                <ExternalLinkIcon className={`w-6 h-6 flex-shrink-0 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`} />
+              </div>
+            </a>
+
             {/* Version Header */}
             <div>
               <h3 className="text-2xl font-semibold mb-1">Version 0.2.0</h3>
@@ -176,6 +204,14 @@ function CloseIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+function ExternalLinkIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
     </svg>
   );
 }
