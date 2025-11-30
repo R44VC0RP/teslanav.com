@@ -19,6 +19,14 @@ const INBOUND_API_KEY = process.env.INBOUND_API_KEY;
 const INBOUND_API_URL = "https://inbound.new/api/v2/emails";
 const ALERT_EMAIL = process.env.ALERT_EMAIL || "ryan@mandarin3d.com";
 
+// Map ApiName to MAPBOX_LIMITS keys (fixes mismatch between reverse_geocoding -> TEMPORARY_GEOCODING)
+const API_LIMIT_MAP: Record<ApiName, number> = {
+  geocoding: MAPBOX_LIMITS.GEOCODING,
+  reverse_geocoding: MAPBOX_LIMITS.TEMPORARY_GEOCODING,
+  map_loads: MAPBOX_LIMITS.MAP_LOADS,
+  directions: MAPBOX_LIMITS.DIRECTIONS,
+};
+
 interface UsageStats {
   apiName: ApiName;
   displayName: string;
@@ -143,7 +151,7 @@ export async function POST(request: NextRequest) {
     }
 
     const currentUsage = await getApiUsage(apiName);
-    const limit = MAPBOX_LIMITS[apiName.toUpperCase() as keyof typeof MAPBOX_LIMITS] || 100000;
+    const limit = API_LIMIT_MAP[apiName];
     const percentUsed = (currentUsage / limit) * 100;
 
     const alertsToSend: number[] = [];
@@ -221,7 +229,7 @@ export async function PUT(request: NextRequest) {
     await redis.set(key, usage, { ex: CACHE_TTL.API_USAGE });
 
     // Check if we should send alerts for this new value
-    const limit = MAPBOX_LIMITS[apiName.toUpperCase() as keyof typeof MAPBOX_LIMITS] || 100000;
+    const limit = API_LIMIT_MAP[apiName];
     const percentUsed = (usage / limit) * 100;
     const alertsTriggered: number[] = [];
 
