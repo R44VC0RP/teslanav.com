@@ -246,8 +246,9 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
 ) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
-  const cameraMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  // Use Maps for incremental marker updates (key = unique ID)
+  const markersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
+  const cameraMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const userMarkerElRef = useRef<HTMLDivElement | null>(null);
   const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -1259,13 +1260,9 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     });
   }, [debugTileBounds, mapLoaded]);
 
-  // Update alert markers with clustering
+  // Update alert markers with clustering - incremental updates to prevent popup glitches
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
-
-    // Clear existing markers
-    markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = [];
 
     // Theme-aware colors
     const shadowColor = isDarkMode ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.15)";
@@ -1275,14 +1272,55 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
 
     // Cluster nearby alerts
     const clusters = clusterAlerts(alerts);
+    
+    // Generate stable IDs for clusters/alerts
+    const getClusterId = (cluster: AlertCluster): string => {
+      if (cluster.alerts.length === 1) {
+        return cluster.alerts[0].uuid;
+      }
+      // For clusters, use sorted UUIDs to create stable ID
+      return `cluster-${cluster.alerts.map(a => a.uuid).sort().join('-')}`;
+    };
+    
+    // Track which markers should exist
+    const newMarkerIds = new Set<string>();
+    
+    // Track which marker has an open popup (to preserve it)
+    let openPopupMarkerId: string | null = null;
+    for (const [id, marker] of markersRef.current) {
+      if (marker.getPopup()?.isOpen()) {
+        openPopupMarkerId = id;
+        break;
+      }
+    }
 
     clusters.forEach((cluster) => {
-      const el = document.createElement("div");
-      el.className = "alert-marker";
-
+      const markerId = getClusterId(cluster);
+      newMarkerIds.add(markerId);
+      
       const isCluster = cluster.alerts.length > 1;
       const color = ALERT_COLORS[cluster.mostSevereType] || "#6b7280";
       const icon = ALERT_ICONS[cluster.mostSevereType] || "/icons/hazard.svg";
+      
+      // Check if marker already exists
+      const existingMarker = markersRef.current.get(markerId);
+      
+      if (existingMarker) {
+        // Update position if needed (marker exists, just update location)
+        const currentLngLat = existingMarker.getLngLat();
+        const targetLng = isCluster ? cluster.center.x : cluster.alerts[0].location.x;
+        const targetLat = isCluster ? cluster.center.y : cluster.alerts[0].location.y;
+        
+        if (Math.abs(currentLngLat.lng - targetLng) > 0.00001 || 
+            Math.abs(currentLngLat.lat - targetLat) > 0.00001) {
+          existingMarker.setLngLat([targetLng, targetLat]);
+        }
+        return; // Keep existing marker, don't recreate
+      }
+      
+      // Create new marker
+      const el = document.createElement("div");
+      el.className = "alert-marker";
 
       if (isCluster) {
         // Cluster marker - minimal bubble with count badge
@@ -1357,7 +1395,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
           .setPopup(popup)
           .addTo(map.current!);
 
-        markersRef.current.push(marker);
+        markersRef.current.set(markerId, marker);
       } else {
         // Single alert marker - minimal bubble
         const alert = cluster.alerts[0];
@@ -1415,7 +1453,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
           .setPopup(popup)
           .addTo(map.current!);
 
-        markersRef.current.push(marker);
+        markersRef.current.set(markerId, marker);
       }
 
       // Hover effect for all markers
@@ -1431,7 +1469,6 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
 
       // Track marker clicks
       el.addEventListener("click", () => {
-        const isCluster = cluster.alerts.length > 1;
         posthog.capture("alert_marker_clicked", {
           is_cluster: isCluster,
           alert_count: cluster.alerts.length,
@@ -1442,22 +1479,50 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         });
       });
     });
+    
+    // Remove markers that no longer exist (only remove stale ones)
+    for (const [id, marker] of markersRef.current) {
+      if (!newMarkerIds.has(id)) {
+        marker.remove();
+        markersRef.current.delete(id);
+      }
+    }
+    
+    // If there was an open popup and the marker still exists, keep it open
+    // (no action needed - we preserved the marker so popup stays open)
   }, [alerts, mapLoaded, isDarkMode]);
 
-  // Update speed camera markers
+  // Update speed camera markers - incremental updates to prevent popup glitches
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
-
-    // Clear existing camera markers
-    cameraMarkersRef.current.forEach((marker) => marker.remove());
-    cameraMarkersRef.current = [];
 
     // Theme-aware colors
     const popupBg = isDarkMode ? "#1a1a1a" : "white";
     const popupText = isDarkMode ? "#e5e5e5" : "#374151";
     const popupSubtext = isDarkMode ? "#9ca3af" : "#6b7280";
+    
+    // Track which markers should exist
+    const newCameraIds = new Set<string>();
 
     speedCameras.forEach((camera) => {
+      // Use camera ID or generate from coordinates
+      const cameraId = camera.id || `camera-${camera.location.lat.toFixed(6)}-${camera.location.lon.toFixed(6)}`;
+      newCameraIds.add(cameraId);
+      
+      // Check if marker already exists
+      const existingMarker = cameraMarkersRef.current.get(cameraId);
+      
+      if (existingMarker) {
+        // Update position if needed
+        const currentLngLat = existingMarker.getLngLat();
+        if (Math.abs(currentLngLat.lng - camera.location.lon) > 0.00001 || 
+            Math.abs(currentLngLat.lat - camera.location.lat) > 0.00001) {
+          existingMarker.setLngLat([camera.location.lon, camera.location.lat]);
+        }
+        return; // Keep existing marker, don't recreate
+      }
+      
+      // Create new marker
       const el = document.createElement("div");
       el.className = "camera-marker";
 
@@ -1513,7 +1578,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         .setPopup(popup)
         .addTo(map.current!);
 
-      cameraMarkersRef.current.push(marker);
+      cameraMarkersRef.current.set(cameraId, marker);
 
       // Hover effect
       el.addEventListener("mouseenter", () => {
@@ -1535,6 +1600,14 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         });
       });
     });
+    
+    // Remove markers that no longer exist
+    for (const [id, marker] of cameraMarkersRef.current) {
+      if (!newCameraIds.has(id)) {
+        marker.remove();
+        cameraMarkersRef.current.delete(id);
+      }
+    }
   }, [speedCameras, mapLoaded, isDarkMode]);
 
   // Render other users as car markers

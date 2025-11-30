@@ -163,7 +163,7 @@ export function NavigateSearch({
           posthog.capture("navigate_search_opened");
         }}
         className={`
-          flex items-center gap-3 px-5 py-3 rounded-full backdrop-blur-xl
+          flex items-center gap-3 px-5 py-3 rounded-xl backdrop-blur-xl
           ${buttonStyles}
           shadow-lg border transition-all duration-200 
           hover:scale-[1.02] active:scale-[0.98]

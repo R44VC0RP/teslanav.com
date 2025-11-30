@@ -1028,7 +1028,7 @@ export default function Home() {
         {latitude && longitude && (
           <div
             className={`
-              flex items-center gap-3 px-4 py-2.5 rounded-xl backdrop-blur-xl
+              flex items-center gap-3 px-4 h-16 rounded-xl backdrop-blur-xl
               ${getContainerStyles(effectiveDarkMode)}
               shadow-lg border
             `}
