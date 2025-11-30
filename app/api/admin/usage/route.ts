@@ -19,10 +19,10 @@ const INBOUND_API_KEY = process.env.INBOUND_API_KEY;
 const INBOUND_API_URL = "https://inbound.new/api/v2/emails";
 const ALERT_EMAIL = process.env.ALERT_EMAIL || "ryan@mandarin3d.com";
 
-// Map ApiName to MAPBOX_LIMITS keys (fixes mismatch between reverse_geocoding -> TEMPORARY_GEOCODING)
+// Map ApiName to API_LIMITS keys
 const API_LIMIT_MAP: Record<ApiName, number> = {
   geocoding: MAPBOX_LIMITS.GEOCODING,
-  reverse_geocoding: MAPBOX_LIMITS.TEMPORARY_GEOCODING,
+  reverse_geocoding: MAPBOX_LIMITS.REVERSE_GEOCODING,
   map_loads: MAPBOX_LIMITS.MAP_LOADS,
   directions: MAPBOX_LIMITS.DIRECTIONS,
 };
@@ -56,10 +56,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const apis: { name: ApiName; displayName: string; limit: number }[] = [
-      { name: "geocoding", displayName: "Geocoding API v6", limit: MAPBOX_LIMITS.GEOCODING },
-      { name: "reverse_geocoding", displayName: "Reverse Geocoding", limit: MAPBOX_LIMITS.TEMPORARY_GEOCODING },
-      { name: "map_loads", displayName: "Map Loads", limit: MAPBOX_LIMITS.MAP_LOADS },
-      { name: "directions", displayName: "Directions API", limit: MAPBOX_LIMITS.DIRECTIONS },
+      { name: "geocoding", displayName: "LocationIQ Geocoding", limit: MAPBOX_LIMITS.GEOCODING },
+      { name: "reverse_geocoding", displayName: "LocationIQ Reverse Geocoding", limit: MAPBOX_LIMITS.REVERSE_GEOCODING },
+      { name: "map_loads", displayName: "Mapbox Map Loads", limit: MAPBOX_LIMITS.MAP_LOADS },
+      { name: "directions", displayName: "Mapbox Directions API", limit: MAPBOX_LIMITS.DIRECTIONS },
     ];
 
     const stats: UsageStats[] = await Promise.all(

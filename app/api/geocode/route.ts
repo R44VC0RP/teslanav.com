@@ -1,12 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { trackApiUsage } from "@/lib/redis";
 
-const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
+const LOCATIONIQ_TOKEN = process.env.LOCATION_IQ_TOKEN || "";
+
+/**
+ * Calculate distance between two points using Haversine formula
+ * Returns distance in kilometers
+ */
+function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
 /**
  * GET /api/geocode?q=query&proximity=lng,lat
- * Uses Mapbox Geocoding API v6 (100K free requests/month vs 12K sessions for Search Box)
- * Returns results WITH coordinates - no second API call needed!
+ * Uses LocationIQ Geocoding API (5K free requests/day = 150K/month)
+ * Returns results WITH coordinates - sorted by proximity to user!
  */
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -20,65 +36,127 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!MAPBOX_TOKEN) {
+  if (!LOCATIONIQ_TOKEN) {
     return NextResponse.json(
-      { error: "Mapbox token not configured" },
+      { error: "LocationIQ token not configured" },
       { status: 500 }
     );
   }
 
+  // Parse user location for proximity sorting
+  let userLng: number | null = null;
+  let userLat: number | null = null;
+  if (proximity) {
+    const [lng, lat] = proximity.split(",").map(Number);
+    if (!isNaN(lng) && !isNaN(lat)) {
+      userLng = lng;
+      userLat = lat;
+    }
+  }
+  
+  console.log("[Geocode] Query:", query, "| Proximity:", proximity, "| Parsed userLng:", userLng, "userLat:", userLat);
+
   try {
-    // Use Mapbox Geocoding API v6 - 100K free requests/month!
-    const baseUrl = "https://api.mapbox.com/search/geocode/v6/forward";
+    // Use LocationIQ Geocoding API - 5K free requests/day!
+    const baseUrl = "https://us1.locationiq.com/v1/search";
     
+    // Strategy: Get lots of results with viewbox hint (not bounded), then sort by distance
+    // This gives us better POI coverage than strict bounding
     const params = new URLSearchParams({
+      key: LOCATIONIQ_TOKEN,
       q: query,
-      access_token: MAPBOX_TOKEN,
-      limit: "5",
-      language: "en",
-      country: "US",
-      types: "poi,address,place,street",
-      autocomplete: "true", // Enable prefix matching for better UX
+      format: "json",
+      limit: "20", // Get many results to sort through
+      countrycodes: "us",
+      addressdetails: "1",
+      normalizeaddress: "1",
+      dedupe: "1", // Remove duplicate results
     });
-
-    if (proximity) {
-      params.set("proximity", proximity);
+    
+    // If user has location, use viewbox as a HINT (not bounded)
+    // This biases results toward the user's area but doesn't exclude far results
+    if (userLng !== null && userLat !== null) {
+      const delta = 1.0; // ~100km hint area
+      params.set("viewbox", `${userLng - delta},${userLat - delta},${userLng + delta},${userLat + delta}`);
+      // NOT using bounded=1 so we get results from everywhere, sorted by relevance
     }
 
-    const response = await fetch(`${baseUrl}?${params.toString()}`);
+    let response = await fetch(`${baseUrl}?${params.toString()}`);
+    let data: unknown[] = [];
 
-    if (!response.ok) {
-      throw new Error(`Mapbox API error: ${response.status}`);
+    // LocationIQ returns 404 with "Unable to geocode" when no results found
+    if (response.ok) {
+      data = await response.json();
+    } else if (response.status === 404) {
+      console.log("[Geocode] No results found for query");
+      data = [];
+    } else {
+      const errorText = await response.text();
+      throw new Error(`LocationIQ API error: ${response.status} - ${errorText}`);
     }
-
-    const data = await response.json();
 
     // Track API usage (fire and forget - don't block response)
     trackApiUsage("geocoding").catch(console.error);
 
-    // Geocoding API v6 returns coordinates directly - no second call needed!
-    const features = (data.features || []).map((feature: {
-      id: string;
-      geometry: { coordinates: [number, number] };
-      properties: {
-        name: string;
-        full_address?: string;
-        place_formatted?: string;
-        context?: {
-          address?: { name: string };
-          street?: { name: string };
-          place?: { name: string };
-          region?: { name: string };
-        };
+    // Transform LocationIQ response to match our expected format
+    let features = (Array.isArray(data) ? data : []).map((place: {
+      place_id: string;
+      lat: string;
+      lon: string;
+      display_name: string;
+      name?: string;
+      address?: {
+        name?: string;
+        house_number?: string;
+        road?: string;
+        neighbourhood?: string;
+        suburb?: string;
+        city?: string;
+        town?: string;
+        village?: string;
+        state?: string;
       };
-    }) => ({
-      id: feature.id,
-      place_name: feature.properties.full_address || feature.properties.place_formatted || feature.properties.name,
-      text: feature.properties.name,
-      center: feature.geometry.coordinates, // Coordinates included directly!
-    }));
+    }) => {
+      // Build a nice short name from the address components
+      const addr = place.address || {};
+      const shortName = place.name || 
+        addr.name ||
+        [addr.house_number, addr.road].filter(Boolean).join(" ") ||
+        addr.neighbourhood ||
+        addr.suburb ||
+        addr.city || addr.town || addr.village ||
+        place.display_name.split(",")[0];
 
-    return NextResponse.json({ features });
+      const placeLat = parseFloat(place.lat);
+      const placeLng = parseFloat(place.lon);
+
+      return {
+        id: place.place_id,
+        place_name: place.display_name,
+        text: shortName,
+        center: [placeLng, placeLat] as [number, number],
+        // Add distance for sorting (will be removed before response)
+        _distance: userLat !== null && userLng !== null 
+          ? getDistanceKm(userLat, userLng, placeLat, placeLng)
+          : Infinity,
+      };
+    });
+
+    // Sort by distance from user and take top 5
+    if (userLat !== null && userLng !== null) {
+      console.log("[Geocode] Before sort - distances:", features.map(f => ({ text: f.text, dist: Math.round(f._distance) + "km" })));
+      features = features
+        .sort((a, b) => a._distance - b._distance)
+        .slice(0, 5);
+      console.log("[Geocode] After sort - top 5:", features.map(f => ({ text: f.text, dist: Math.round(f._distance) + "km" })));
+    } else {
+      console.log("[Geocode] No proximity - returning unsorted results");
+    }
+
+    // Remove internal _distance field before returning
+    const cleanedFeatures = features.map(({ _distance, ...rest }) => rest);
+
+    return NextResponse.json({ features: cleanedFeatures });
   } catch (error) {
     console.error("Geocoding error:", error);
     return NextResponse.json(

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redis, trackApiUsage } from "@/lib/redis";
 
-const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
+const LOCATIONIQ_TOKEN = process.env.LOCATION_IQ_TOKEN || "";
 
 // Cache reverse geocode results for 24 hours (locations don't change)
 const CACHE_TTL = 86400; // 24 hours in seconds
@@ -25,9 +25,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!MAPBOX_TOKEN) {
+  if (!LOCATIONIQ_TOKEN) {
     return NextResponse.json(
-      { error: "Mapbox token not configured" },
+      { error: "LocationIQ token not configured" },
       { status: 500 }
     );
   }
@@ -43,22 +43,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ placeName: cached, cached: true });
     }
 
-    // Not cached - fetch from Mapbox
+    // Not cached - fetch from LocationIQ
+    const params = new URLSearchParams({
+      key: LOCATIONIQ_TOKEN,
+      lat: lat,
+      lon: lng,
+      format: "json",
+      addressdetails: "1",
+      normalizeaddress: "1",
+    });
+
     const response = await fetch(
-      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=address,poi,place,locality,neighborhood&limit=1`
+      `https://us1.locationiq.com/v1/reverse?${params.toString()}`
     );
 
     if (!response.ok) {
-      throw new Error(`Mapbox API error: ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`LocationIQ API error: ${response.status} - ${errorText}`);
     }
 
-    // Track API usage (only when actually calling Mapbox, not from cache)
+    // Track API usage (only when actually calling LocationIQ, not from cache)
     trackApiUsage("reverse_geocoding").catch(console.error);
 
     const data = await response.json();
     
-    const placeName = data.features?.[0]?.place_name || 
-                      data.features?.[0]?.text ||
+    // Build a nice place name from LocationIQ response
+    const addr = data.address || {};
+    const placeName = data.display_name || 
+                      [addr.road, addr.city || addr.town || addr.village, addr.state].filter(Boolean).join(", ") ||
                       `${latNum.toFixed(4)}, ${lngNum.toFixed(4)}`;
 
     // Cache the result

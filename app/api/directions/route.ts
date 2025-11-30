@@ -16,6 +16,7 @@ export interface RouteStep {
 }
 
 export interface RouteData {
+  id: string;
   geometry: {
     coordinates: [number, number][];
     type: string;
@@ -23,6 +24,12 @@ export interface RouteData {
   distance: number; // meters
   duration: number; // seconds
   steps: RouteStep[];
+  summary: string; // e.g., "via I-95 N"
+}
+
+export interface RoutesResponse {
+  routes: RouteData[];
+  selectedIndex: number;
 }
 
 export async function GET(request: NextRequest) {
@@ -57,7 +64,7 @@ export async function GET(request: NextRequest) {
       overview: "full",
       steps: "true",
       annotations: "congestion,duration,distance",
-      alternatives: "false",
+      alternatives: "true", // Enable alternative routes!
     });
 
     const response = await fetch(
@@ -80,37 +87,56 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const route = data.routes[0];
+    // Extract all routes (up to 3)
+    const routes: RouteData[] = data.routes.slice(0, 3).map((route: {
+      geometry: { coordinates: [number, number][]; type: string };
+      distance: number;
+      duration: number;
+      legs: Array<{
+        summary: string;
+        steps: Array<{
+          maneuver: {
+            instruction: string;
+            type: string;
+            modifier?: string;
+            bearing_after?: number;
+          };
+          distance: number;
+          duration: number;
+          name: string;
+        }>;
+      }>;
+    }, index: number) => {
+      // Build summary from major road names in the route
+      const summary = route.legs[0]?.summary || buildRouteSummary(route.legs[0]?.steps || [], index);
+      
+      return {
+        id: `route-${index}`,
+        geometry: route.geometry,
+        distance: route.distance,
+        duration: route.duration,
+        summary,
+        steps: route.legs[0].steps.map((step) => ({
+          instruction: step.maneuver.instruction,
+          distance: step.distance,
+          duration: step.duration,
+          name: step.name,
+          maneuver: {
+            type: step.maneuver.type,
+            modifier: step.maneuver.modifier,
+            bearing_after: step.maneuver.bearing_after,
+          },
+        })),
+      };
+    });
 
-    // Extract route data
-    const routeData: RouteData = {
-      geometry: route.geometry,
-      distance: route.distance,
-      duration: route.duration,
-      steps: route.legs[0].steps.map((step: {
-        maneuver: {
-          instruction: string;
-          type: string;
-          modifier?: string;
-          bearing_after?: number;
-        };
-        distance: number;
-        duration: number;
-        name: string;
-      }) => ({
-        instruction: step.maneuver.instruction,
-        distance: step.distance,
-        duration: step.duration,
-        name: step.name,
-        maneuver: {
-          type: step.maneuver.type,
-          modifier: step.maneuver.modifier,
-          bearing_after: step.maneuver.bearing_after,
-        },
-      })),
+    // First route is fastest (Mapbox returns them sorted by duration)
+    const routesResponse: RoutesResponse = {
+      routes,
+      selectedIndex: 0,
     };
 
-    return NextResponse.json(routeData);
+    return NextResponse.json(routesResponse);
   } catch (error) {
     console.error("Directions error:", error);
     return NextResponse.json(
@@ -118,5 +144,32 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// Build a human-readable summary from route steps
+function buildRouteSummary(steps: Array<{ name: string; distance: number }>, index: number): string {
+  // Find the longest road segment (likely a highway/main road)
+  const roadSegments = steps
+    .filter(s => s.name && s.name.length > 0)
+    .reduce((acc, step) => {
+      const existing = acc.find(r => r.name === step.name);
+      if (existing) {
+        existing.distance += step.distance;
+      } else {
+        acc.push({ name: step.name, distance: step.distance });
+      }
+      return acc;
+    }, [] as Array<{ name: string; distance: number }>)
+    .sort((a, b) => b.distance - a.distance);
+
+  if (roadSegments.length > 0) {
+    // Get the longest road segment
+    const mainRoad = roadSegments[0].name;
+    return `via ${mainRoad}`;
+  }
+
+  // Fallback labels
+  const labels = ["Fastest route", "Alternative route", "Another route"];
+  return labels[index] || `Route ${index + 1}`;
 }
 

@@ -6,13 +6,14 @@ import { SettingsModal } from "@/components/SettingsModal";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { ChangelogModal } from "@/components/ChangelogModal";
 import { NavigateSearch } from "@/components/NavigateSearch";
+import { RouteSelector } from "@/components/RouteSelector";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
 import { useSpeedCameras } from "@/hooks/useSpeedCameras";
 import { useReverseGeocode } from "@/hooks/useReverseGeocode";
 import { useRealtimeUsers } from "@/hooks/useRealtimeUsers";
 import type { MapBounds } from "@/types/waze";
-import type { RouteData } from "@/types/route";
+import type { RouteData, RoutesResponse } from "@/types/route";
 import Image from "next/image";
 import posthog from "posthog-js";
 import { ShieldExclamationIcon, ExclamationTriangleIcon, NoSymbolIcon } from "@heroicons/react/24/solid";
@@ -63,8 +64,12 @@ export default function Home() {
   const mapRef = useRef<MapRef>(null);
 
   const [destination, setDestination] = useState<{ lng: number; lat: number; name: string } | null>(null);
-  const [route, setRoute] = useState<RouteData | null>(null);
+  const [routes, setRoutes] = useState<RouteData[]>([]);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
   const [routeLoading, setRouteLoading] = useState(false);
+  
+  // Computed: currently selected route (for backward compatibility)
+  const route = routes.length > 0 ? routes[selectedRouteIndex] : null;
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ lng: number; lat: number; screenX: number; screenY: number; placeName?: string } | null>(null);
   const [contextMenuLoading, setContextMenuLoading] = useState(false);
@@ -209,25 +214,37 @@ export default function Home() {
       );
       
       if (response.ok) {
-        const routeData: RouteData = await response.json();
-        setRoute(routeData);
+        const data: RoutesResponse = await response.json();
+        setRoutes(data.routes);
+        
+        // Reset to fastest route on initial fetch, keep selection on updates
+        if (!isUpdate) {
+          setSelectedRouteIndex(0);
+        }
         
         // Update last origin
         lastRouteOriginRef.current = { lat: latitude, lng: longitude };
         
-        if (!isUpdate) {
+        if (!isUpdate && data.routes.length > 0) {
           posthog.capture("route_calculated", {
-            distance_meters: routeData.distance,
-            duration_seconds: routeData.duration,
+            distance_meters: data.routes[0].distance,
+            duration_seconds: data.routes[0].duration,
+            alternatives_count: data.routes.length,
           });
         }
       } else {
         console.error("Failed to fetch route");
-        if (!isUpdate) setRoute(null);
+        if (!isUpdate) {
+          setRoutes([]);
+          setSelectedRouteIndex(0);
+        }
       }
     } catch (error) {
       console.error("Route fetch error:", error);
-      if (!isUpdate) setRoute(null);
+      if (!isUpdate) {
+        setRoutes([]);
+        setSelectedRouteIndex(0);
+      }
     } finally {
       if (!isUpdate) {
         setRouteLoading(false);
@@ -276,37 +293,48 @@ export default function Home() {
     };
   }, [latitude, longitude, destination, route, fetchRoute, getDistanceToRoute]);
 
-  // Handle destination selection from search - just preview, don't navigate yet
+  // Handle destination selection from search - preview and fetch routes
   const handleSelectDestination = useCallback((lng: number, lat: number, placeName: string) => {
     setPreviewLocation({ lng, lat, name: placeName });
     setContextMenu(null);
+    
+    // Fetch routes for the preview location
+    if (latitude && longitude) {
+      fetchRoute(lng, lat);
+    }
+    
     // Center map on the searched location
     if (mapRef.current) {
-      mapRef.current.recenter(lng, lat);
+      mapRef.current.flyToDestination(lng, lat);
     }
     posthog.capture("location_previewed", {
       place_name: placeName,
     });
-  }, []);
+  }, [latitude, longitude, fetchRoute]);
 
   // Actually start navigation from preview location
   const handleStartNavigation = useCallback(() => {
-    if (!previewLocation) return;
+    if (!previewLocation || routes.length === 0) return;
     
     setDestination(previewLocation);
     setPreviewLocation(null);
-    // Reset last origin so the first fetch sets it
-    lastRouteOriginRef.current = null;
-    fetchRoute(previewLocation.lng, previewLocation.lat);
+    // Set last origin to current position for off-route detection
+    if (latitude && longitude) {
+      lastRouteOriginRef.current = { lat: latitude, lng: longitude };
+    }
     
     posthog.capture("navigation_started_from_preview", {
       place_name: previewLocation.name,
+      selected_route_index: selectedRouteIndex,
+      routes_available: routes.length,
     });
-  }, [previewLocation, fetchRoute]);
+  }, [previewLocation, routes, selectedRouteIndex, latitude, longitude]);
 
   // Cancel preview and return to user location
   const handleCancelPreview = useCallback(() => {
     setPreviewLocation(null);
+    setRoutes([]);
+    setSelectedRouteIndex(0);
     // Return to user's location
     if (latitude && longitude && mapRef.current) {
       mapRef.current.recenter(longitude, latitude);
@@ -316,7 +344,8 @@ export default function Home() {
   // Clear destination
   const handleClearDestination = useCallback(() => {
     setDestination(null);
-    setRoute(null);
+    setRoutes([]);
+    setSelectedRouteIndex(0);
     setPreviewLocation(null);
     lastRouteOriginRef.current = null;
     if (routeUpdateTimeoutRef.current) {
@@ -789,7 +818,8 @@ export default function Home() {
         onCenteredChange={handleCenteredChange}
         onLongPress={handleMapLongPress}
         pinLocation={contextMenu ? { lng: contextMenu.lng, lat: contextMenu.lat } : previewLocation ? { lng: previewLocation.lng, lat: previewLocation.lat } : null}
-        route={route}
+        routes={routes}
+        selectedRouteIndex={selectedRouteIndex}
         userLocation={latitude && longitude ? { latitude, longitude, heading, effectiveHeading, speed } : null}
         followMode={followMode}
         showTraffic={showTraffic}
@@ -897,7 +927,7 @@ export default function Home() {
             className={`
               rounded-2xl backdrop-blur-xl overflow-hidden
               ${getContainerStyles(effectiveDarkMode)}
-              shadow-lg border max-w-[360px]
+              shadow-lg border max-w-[400px]
             `}
           >
             {/* Location info */}
@@ -911,18 +941,42 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Route Selection - Shows when routes are loaded */}
+            {routes.length > 0 && (
+              <div className="py-2 border-b border-inherit">
+                <RouteSelector
+                  routes={routes}
+                  selectedIndex={selectedRouteIndex}
+                  onSelectRoute={setSelectedRouteIndex}
+                  isDarkMode={effectiveDarkMode}
+                />
+              </div>
+            )}
+            
+            {/* Loading indicator */}
+            {routeLoading && routes.length === 0 && (
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-inherit">
+                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin opacity-50" />
+                <span className={`text-sm ${effectiveDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                  Finding routes...
+                </span>
+              </div>
+            )}
+
             {/* Action buttons */}
             <div className="flex gap-2 p-3">
               <button
                 onClick={handleStartNavigation}
+                disabled={routes.length === 0}
                 className={`
                   flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
                   bg-blue-500 text-white font-medium
                   transition-all hover:bg-blue-600 active:scale-[0.98]
+                  disabled:opacity-50 disabled:cursor-not-allowed
                 `}
               >
                 <NavigateToIcon className="w-4 h-4" />
-                Navigate
+                {routes.length > 1 ? "Start Selected Route" : "Navigate"}
               </button>
               <button
                 onClick={handleCancelPreview}

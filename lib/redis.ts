@@ -35,13 +35,16 @@ export const RATE_LIMITS = {
   OSM_REQUESTS_PER_MINUTE: 10, // Max 10 requests to OSM Overpass per minute
 } as const;
 
-// Mapbox API free tier limits
-export const MAPBOX_LIMITS = {
-  GEOCODING: 100_000, // 100K requests/month for Geocoding API v6
-  TEMPORARY_GEOCODING: 100_000, // 100K requests/month
-  MAP_LOADS: 50_000, // 50K map loads/month
-  DIRECTIONS: 100_000, // 100K requests/month
+// API free tier limits (LocationIQ: 5K/day = ~150K/month, Mapbox for maps/directions)
+export const API_LIMITS = {
+  GEOCODING: 150_000, // LocationIQ: 5K requests/day = ~150K/month
+  REVERSE_GEOCODING: 150_000, // LocationIQ: 5K requests/day = ~150K/month
+  MAP_LOADS: 50_000, // Mapbox: 50K map loads/month
+  DIRECTIONS: 100_000, // Mapbox: 100K requests/month
 } as const;
+
+// Alias for backwards compatibility
+export const MAPBOX_LIMITS = API_LIMITS;
 
 // Alert thresholds (percentage of limit)
 export const ALERT_THRESHOLDS = [50, 75, 90, 100] as const;

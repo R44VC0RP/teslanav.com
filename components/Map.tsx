@@ -21,7 +21,9 @@ interface MapProps {
   onCenteredChange?: (isCentered: boolean) => void;
   onLongPress?: (lng: number, lat: number, screenX: number, screenY: number) => void;
   pinLocation?: { lng: number; lat: number } | null;
-  route?: RouteData | null;
+  route?: RouteData | null; // Legacy single route support
+  routes?: RouteData[]; // Multiple routes for selection
+  selectedRouteIndex?: number; // Which route is selected (0 = first/fastest)
   userLocation?: { 
     latitude: number; 
     longitude: number; 
@@ -233,6 +235,8 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     onLongPress,
     pinLocation,
     route,
+    routes = [],
+    selectedRouteIndex = 0,
     userLocation,
     followMode = false,
     showTraffic = false,
@@ -1801,99 +1805,59 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     }
   }, [pinLocation, mapLoaded]);
 
-  // Route line display
+  // Route line display - supports multiple routes with selection
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
 
     const mapInstance = map.current;
-    const sourceId = "route-source";
-    const layerId = "route-layer";
-    const casingLayerId = "route-casing-layer";
-
-    // Function to remove existing route layers
-    const removeRouteLayers = () => {
-      if (mapInstance.getLayer(layerId)) {
-        mapInstance.removeLayer(layerId);
+    
+    // Use routes array if provided, otherwise fall back to single route
+    const allRoutes = routes.length > 0 ? routes : (route ? [route] : []);
+    
+    // Function to remove all existing route layers
+    const removeAllRouteLayers = () => {
+      // Remove up to 5 possible route layers (more than we'll ever need)
+      for (let i = 0; i < 5; i++) {
+        const layerId = `route-layer-${i}`;
+        const casingLayerId = `route-casing-layer-${i}`;
+        const sourceId = `route-source-${i}`;
+        
+        if (mapInstance.getLayer(layerId)) {
+          mapInstance.removeLayer(layerId);
+        }
+        if (mapInstance.getLayer(casingLayerId)) {
+          mapInstance.removeLayer(casingLayerId);
+        }
+        if (mapInstance.getSource(sourceId)) {
+          mapInstance.removeSource(sourceId);
+        }
       }
-      if (mapInstance.getLayer(casingLayerId)) {
-        mapInstance.removeLayer(casingLayerId);
+      
+      // Also remove legacy single route layers
+      if (mapInstance.getLayer("route-layer")) {
+        mapInstance.removeLayer("route-layer");
       }
-      if (mapInstance.getSource(sourceId)) {
-        mapInstance.removeSource(sourceId);
+      if (mapInstance.getLayer("route-casing-layer")) {
+        mapInstance.removeLayer("route-casing-layer");
+      }
+      if (mapInstance.getSource("route-source")) {
+        mapInstance.removeSource("route-source");
       }
     };
 
-    // Remove existing route
-    removeRouteLayers();
-
-    // Add new route if provided
-    if (route && route.geometry) {
-      // Add route source
-      mapInstance.addSource(sourceId, {
-        type: "geojson",
-        data: {
-          type: "Feature",
-          properties: {},
-          geometry: {
-            type: "LineString" as const,
-            coordinates: route.geometry.coordinates,
-          },
-        },
-      });
-
-      // Add route casing (outline) for better visibility
-      mapInstance.addLayer({
-        id: casingLayerId,
-        type: "line",
-        source: sourceId,
-        layout: {
-          "line-join": "round",
-          "line-cap": "round",
-        },
-        paint: {
-          "line-color": isDarkMode ? "#1a1a1a" : "#ffffff",
-          "line-width": 10,
-          "line-opacity": 0.8,
-        },
-      });
-
-      // Add route line
-      mapInstance.addLayer({
-        id: layerId,
-        type: "line",
-        source: sourceId,
-        layout: {
-          "line-join": "round",
-          "line-cap": "round",
-        },
-        paint: {
-          "line-color": "#3b82f6", // Blue route color
-          "line-width": 6,
-          "line-opacity": 1,
-        },
-      });
-
-      // Fit map to show the entire route
-      const coordinates = route.geometry.coordinates;
-      if (coordinates.length > 0) {
-        const bounds = coordinates.reduce(
-          (bounds, coord) => bounds.extend(coord as [number, number]),
-          new mapboxgl.LngLatBounds(coordinates[0] as [number, number], coordinates[0] as [number, number])
-        );
-
-        mapInstance.fitBounds(bounds, {
-          padding: { top: 100, bottom: 200, left: 50, right: 50 },
-          duration: 1000,
-        });
-      }
-    }
-
-    // Cleanup on style change
-    const handleStyleLoad = () => {
-      if (route && route.geometry) {
-        // Re-add route after style change
-        removeRouteLayers();
+    // Function to add all routes
+    const addRoutes = () => {
+      if (allRoutes.length === 0) return;
+      
+      // Add alternative routes first (so they appear behind selected route)
+      allRoutes.forEach((routeData, index) => {
+        if (index === selectedRouteIndex) return; // Skip selected route, add it last
         
+        const sourceId = `route-source-${index}`;
+        const casingLayerId = `route-casing-layer-${index}`;
+        const layerId = `route-layer-${index}`;
+        
+        // Add source
         mapInstance.addSource(sourceId, {
           type: "geojson",
           data: {
@@ -1901,11 +1865,65 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
             properties: {},
             geometry: {
               type: "LineString" as const,
-              coordinates: route.geometry.coordinates,
+              coordinates: routeData.geometry.coordinates,
             },
           },
         });
 
+        // Add casing (outline) - gray for alternatives
+        mapInstance.addLayer({
+          id: casingLayerId,
+          type: "line",
+          source: sourceId,
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
+          paint: {
+            "line-color": isDarkMode ? "#1a1a1a" : "#ffffff",
+            "line-width": 8,
+            "line-opacity": 0.6,
+          },
+        });
+
+        // Add route line - gray/muted for alternatives
+        mapInstance.addLayer({
+          id: layerId,
+          type: "line",
+          source: sourceId,
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
+          paint: {
+            "line-color": isDarkMode ? "#6b7280" : "#9ca3af", // Gray for alternatives
+            "line-width": 5,
+            "line-opacity": 0.7,
+          },
+        });
+      });
+
+      // Add selected route last (so it appears on top)
+      const selectedRoute = allRoutes[selectedRouteIndex];
+      if (selectedRoute) {
+        const sourceId = `route-source-${selectedRouteIndex}`;
+        const casingLayerId = `route-casing-layer-${selectedRouteIndex}`;
+        const layerId = `route-layer-${selectedRouteIndex}`;
+        
+        // Add source
+        mapInstance.addSource(sourceId, {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "LineString" as const,
+              coordinates: selectedRoute.geometry.coordinates,
+            },
+          },
+        });
+
+        // Add casing (outline) for better visibility
         mapInstance.addLayer({
           id: casingLayerId,
           type: "line",
@@ -1921,6 +1939,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
           },
         });
 
+        // Add route line - blue for selected
         mapInstance.addLayer({
           id: layerId,
           type: "line",
@@ -1930,12 +1949,36 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
             "line-cap": "round",
           },
           paint: {
-            "line-color": "#3b82f6",
+            "line-color": "#3b82f6", // Blue for selected route
             "line-width": 6,
             "line-opacity": 1,
           },
         });
+
+        // Fit map to show the selected route
+        const coordinates = selectedRoute.geometry.coordinates;
+        if (coordinates.length > 0) {
+          const bounds = coordinates.reduce(
+            (bnds, coord) => bnds.extend(coord as [number, number]),
+            new mapboxgl.LngLatBounds(coordinates[0] as [number, number], coordinates[0] as [number, number])
+          );
+
+          mapInstance.fitBounds(bounds, {
+            padding: { top: 100, bottom: 250, left: 50, right: 50 },
+            duration: 1000,
+          });
+        }
       }
+    };
+
+    // Remove existing routes and add new ones
+    removeAllRouteLayers();
+    addRoutes();
+
+    // Cleanup on style change
+    const handleStyleLoad = () => {
+      removeAllRouteLayers();
+      addRoutes();
     };
 
     mapInstance.on("style.load", handleStyleLoad);
@@ -1943,7 +1986,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     return () => {
       mapInstance.off("style.load", handleStyleLoad);
     };
-  }, [route, mapLoaded, isDarkMode]);
+  }, [route, routes, selectedRouteIndex, mapLoaded, isDarkMode]);
 
   return (
     <>

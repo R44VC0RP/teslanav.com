@@ -11,6 +11,7 @@ export interface RouteStep {
 }
 
 export interface RouteData {
+  id: string;
   geometry: {
     coordinates: [number, number][];
     type: string;
@@ -18,5 +19,11 @@ export interface RouteData {
   distance: number; // meters
   duration: number; // seconds
   steps: RouteStep[];
+  summary: string; // e.g., "via I-95 N"
+}
+
+export interface RoutesResponse {
+  routes: RouteData[];
+  selectedIndex: number;
 }
 
