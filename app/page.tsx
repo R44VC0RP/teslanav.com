@@ -8,6 +8,7 @@ import { useGeolocation } from "@/hooks/useGeolocation";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
 import { useSpeedCameras } from "@/hooks/useSpeedCameras";
 import { useReverseGeocode } from "@/hooks/useReverseGeocode";
+import { useRealtimeUsers } from "@/hooks/useRealtimeUsers";
 import type { MapBounds } from "@/types/waze";
 import type { RouteData } from "@/types/route";
 import Image from "next/image";
@@ -97,6 +98,14 @@ export default function Home() {
   const { alerts, loading: alertsLoading, cachedTileBounds } = useWazeAlerts({ bounds });
   const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
   const { placeName, loading: placeLoading } = useReverseGeocode(latitude, longitude);
+  
+  // Real-time collaboration - see other users on the map
+  const { otherUsers, liveCount, nearbyCount } = useRealtimeUsers({
+    latitude,
+    longitude,
+    heading: effectiveHeading,
+    enabled: true,
+  });
 
   // Track last route origin to detect significant movement
   const lastRouteOriginRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -708,6 +717,7 @@ export default function Home() {
         showAlertRadius={isDevMode && policeAlertDistance > 0}
         alertRadiusMeters={policeAlertDistance}
         debugTileBounds={isDevMode ? cachedTileBounds : undefined}
+        otherUsers={otherUsers}
       />
 
       {/* Context Menu - Shows on long press */}
@@ -905,6 +915,41 @@ export default function Home() {
 
       {/* Top Right - Compass + Alert Summary (stacked) */}
       <div className="absolute top-4 right-4 z-30 flex flex-col items-end gap-3">
+        {/* Live Users Badge (real-time presence count) */}
+        {liveCount > 1 && (
+          <div
+            className={`
+              flex items-center gap-2 px-3 py-2 rounded-xl backdrop-blur-xl
+              ${getContainerStyles(effectiveDarkMode)}
+              shadow-lg border
+            `}
+            title="Users currently online"
+          >
+            <div className="relative flex items-center">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <div className="absolute w-2 h-2 rounded-full bg-green-500 animate-ping" />
+            </div>
+            <span className="text-sm font-medium">{liveCount} online</span>
+          </div>
+        )}
+
+        {/* Nearby Users Badge (delayed positions on map) */}
+        {nearbyCount > 1 && (
+          <div
+            className={`
+              flex items-center gap-2 px-3 py-2 rounded-xl backdrop-blur-xl
+              ${getContainerStyles(effectiveDarkMode)}
+              shadow-lg border
+            `}
+            title="Cars on map (5 min delay for privacy)"
+          >
+            <div className="flex items-center">
+              <span className="text-sm">🚗</span>
+            </div>
+            <span className="text-sm font-medium">{nearbyCount} nearby</span>
+          </div>
+        )}
+
         {/* Compass/Orientation Toggle */}
         <button
           onClick={toggleFollowMode}

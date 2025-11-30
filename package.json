@@ -11,6 +11,7 @@
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "@radix-ui/react-slot": "^1.2.4",
+    "@upstash/realtime": "^1.0.0",
     "@upstash/redis": "^1.35.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -22,7 +23,8 @@
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-grab": "^0.0.54",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

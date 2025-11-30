@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import Script from "next/script";
+import { Providers } from "./providers";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -54,7 +55,7 @@ export default function RootLayout({
           inset: 0,
         }}
       >
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

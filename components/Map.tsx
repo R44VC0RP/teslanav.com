@@ -6,6 +6,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import type { WazeAlert, MapBounds } from "@/types/waze";
 import type { SpeedCamera } from "@/types/speedcamera";
 import type { RouteData } from "@/types/route";
+import type { UserPosition } from "@/lib/realtime";
 import posthog from "posthog-js";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -36,6 +37,8 @@ interface MapProps {
   alertRadiusMeters?: number;
   // Dev mode - show cached Waze tile bounds
   debugTileBounds?: Array<{ bounds: MapBounds; ageMs: number }>;
+  // Real-time other users
+  otherUsers?: UserPosition[];
 }
 
 export interface MapRef {
@@ -197,6 +200,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     showAlertRadius = false,
     alertRadiusMeters = 500,
     debugTileBounds,
+    otherUsers = [],
   },
   ref
 ) {
@@ -207,6 +211,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const userMarkerElRef = useRef<HTMLDivElement | null>(null);
   const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const otherUserMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
   const [mapLoaded, setMapLoaded] = useState(false);
   const initialCenterSet = useRef(false);
   const isFollowMode = useRef(followMode);
@@ -1473,6 +1478,89 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     });
   }, [speedCameras, mapLoaded, isDarkMode]);
 
+  // Render other users as car markers
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    const currentMarkers = otherUserMarkersRef.current;
+    const userIds = new Set(otherUsers.map((u) => u.id));
+
+    // Remove markers for users who left
+    for (const [id, marker] of currentMarkers) {
+      if (!userIds.has(id)) {
+        marker.remove();
+        currentMarkers.delete(id);
+      }
+    }
+
+    // Add or update markers for each user
+    otherUsers.forEach((user) => {
+      const existingMarker = currentMarkers.get(user.id);
+      const carIconPath = `/cars/${user.c}.png`;
+      const rotation = user.h ?? 0;
+
+      if (existingMarker) {
+        // Update position
+        existingMarker.setLngLat([user.lng, user.lat]);
+        // Update rotation
+        const el = existingMarker.getElement();
+        const carEl = el.querySelector(".other-user-car") as HTMLElement;
+        if (carEl) {
+          carEl.style.transform = `translate(-50%, -50%) rotate(${rotation}deg)`;
+        }
+      } else {
+        // Create new marker
+        const el = document.createElement("div");
+        el.className = "other-user-marker";
+        el.innerHTML = `
+          <div class="other-user-car" style="
+            position: absolute;
+            top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%) rotate(${rotation}deg);
+              width: 18px;
+              height: 28px;
+              transition: transform 0.3s ease-out;
+          ">
+            <img 
+              src="${carIconPath}" 
+              alt="Other driver" 
+              style="width: 100%; height: 100%; object-fit: contain;"
+              onerror="this.src='/cars/blue.png'"
+            />
+          </div>
+          <div class="other-user-shadow" style="
+            position: absolute;
+            top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%);
+              width: 20px;
+              height: 20px;
+              background: radial-gradient(ellipse, rgba(0,0,0,0.15) 0%, transparent 70%);
+              border-radius: 50%;
+              z-index: -1;
+          "></div>
+        `;
+
+        const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
+          .setLngLat([user.lng, user.lat])
+          .addTo(map.current!);
+
+        currentMarkers.set(user.id, marker);
+      }
+    });
+  }, [otherUsers, mapLoaded]);
+
+  // Cleanup other user markers on unmount
+  useEffect(() => {
+    return () => {
+      for (const marker of otherUserMarkersRef.current.values()) {
+        marker.remove();
+      }
+      otherUserMarkersRef.current.clear();
+    };
+  }, []);
+
   // Pin marker for long-press location (using Waze origin marker style)
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
@@ -1721,6 +1809,13 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
           50% {
             transform: scale(1.1);
           }
+        }
+        
+        .other-user-marker {
+          z-index: 5 !important;
+          width: 24px;
+          height: 32px;
+          position: relative;
         }
         
         .alert-popup-container .mapboxgl-popup-content {
