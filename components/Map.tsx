@@ -34,6 +34,8 @@ interface MapProps {
   // Dev mode - show alert radius ring
   showAlertRadius?: boolean;
   alertRadiusMeters?: number;
+  // Dev mode - show cached Waze tile bounds
+  debugTileBounds?: Array<{ bounds: MapBounds; ageMs: number }>;
 }
 
 export interface MapRef {
@@ -194,6 +196,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     showAvatarPulse = true,
     showAlertRadius = false,
     alertRadiusMeters = 500,
+    debugTileBounds,
   },
   ref
 ) {
@@ -1074,6 +1077,123 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       }
     };
   }, []);
+
+  // Dev mode - Show cached Waze tile bounds
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+    const mapInstance = map.current;
+    
+    const sourceId = "debug-tile-bounds-source";
+    const fillLayerId = "debug-tile-bounds-fill";
+    const lineLayerId = "debug-tile-bounds-line";
+    const labelLayerId = "debug-tile-bounds-label";
+
+    // Remove existing layers and source
+    try {
+      if (mapInstance.getLayer(labelLayerId)) mapInstance.removeLayer(labelLayerId);
+      if (mapInstance.getLayer(lineLayerId)) mapInstance.removeLayer(lineLayerId);
+      if (mapInstance.getLayer(fillLayerId)) mapInstance.removeLayer(fillLayerId);
+      if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId);
+    } catch {
+      // Ignore cleanup errors
+    }
+
+    // If no debug tiles, don't render anything
+    if (!debugTileBounds || debugTileBounds.length === 0) return;
+
+    // Create GeoJSON features for each tile
+    const features = debugTileBounds.map((tile, index) => {
+      const { bounds, ageMs } = tile;
+      const ageSeconds = Math.round(ageMs / 1000);
+      // Color based on age: green (fresh) -> yellow -> red (old)
+      const freshness = Math.max(0, 1 - ageMs / 60000); // 0-1, 1 = fresh
+      
+      return {
+        type: "Feature" as const,
+        properties: {
+          index,
+          ageSeconds,
+          freshness,
+          label: `Tile ${index + 1}\n${ageSeconds}s old`,
+        },
+        geometry: {
+          type: "Polygon" as const,
+          coordinates: [[
+            [bounds.west, bounds.south],
+            [bounds.east, bounds.south],
+            [bounds.east, bounds.north],
+            [bounds.west, bounds.north],
+            [bounds.west, bounds.south],
+          ]],
+        },
+      };
+    });
+
+    // Add source
+    mapInstance.addSource(sourceId, {
+      type: "geojson",
+      data: {
+        type: "FeatureCollection",
+        features,
+      },
+    });
+
+    // Add fill layer (semi-transparent)
+    mapInstance.addLayer({
+      id: fillLayerId,
+      type: "fill",
+      source: sourceId,
+      paint: {
+        "fill-color": [
+          "interpolate",
+          ["linear"],
+          ["get", "freshness"],
+          0, "#ef4444", // red (stale)
+          0.5, "#eab308", // yellow
+          1, "#22c55e", // green (fresh)
+        ],
+        "fill-opacity": 0.15,
+      },
+    });
+
+    // Add outline layer
+    mapInstance.addLayer({
+      id: lineLayerId,
+      type: "line",
+      source: sourceId,
+      paint: {
+        "line-color": [
+          "interpolate",
+          ["linear"],
+          ["get", "freshness"],
+          0, "#ef4444",
+          0.5, "#eab308",
+          1, "#22c55e",
+        ],
+        "line-width": 3,
+        "line-dasharray": [4, 2],
+      },
+    });
+
+    // Add label layer
+    mapInstance.addLayer({
+      id: labelLayerId,
+      type: "symbol",
+      source: sourceId,
+      layout: {
+        "text-field": ["get", "label"],
+        "text-size": 14,
+        "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
+        "text-anchor": "center",
+        "text-allow-overlap": true,
+      },
+      paint: {
+        "text-color": "#ffffff",
+        "text-halo-color": "#000000",
+        "text-halo-width": 2,
+      },
+    });
+  }, [debugTileBounds, mapLoaded]);
 
   // Update alert markers with clustering
   useEffect(() => {
