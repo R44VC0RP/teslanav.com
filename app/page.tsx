@@ -81,8 +81,10 @@ export default function Home() {
   const alertAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastAlertTimeRef = useRef<number>(0);
   const ALERT_COOLDOWN_MS = 5000; // 5 seconds between alerts
-  // Track if we've done initial warmup (prevents alerts on page load for existing nearby hazards)
-  const alertWarmupDoneRef = useRef(false);
+  // Time-based warmup: suppress alerts for first N seconds after page load
+  // This prevents alerts for cops that are already nearby when you open the app
+  const pageLoadTimeRef = useRef<number>(Date.now());
+  const WARMUP_PERIOD_MS = 10000; // 10 seconds warmup - silently mark nearby cops as seen
 
   // Dev mode - route simulation
   const [isDevMode, setIsDevMode] = useState(false);
@@ -91,18 +93,20 @@ export default function Home() {
   const simulationIndexRef = useRef(0);
   const simulationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { latitude: realLatitude, longitude: realLongitude, heading, effectiveHeading: realEffectiveHeading, loading: geoLoading, error: geoError } = useGeolocation();
+  const { latitude: realLatitude, longitude: realLongitude, heading, effectiveHeading: realEffectiveHeading, speed: realSpeed, loading: geoLoading, error: geoError } = useGeolocation();
   
   // Use simulated position if simulating, otherwise use real position
   const latitude = isSimulating && simulatedPosition ? simulatedPosition.lat : realLatitude;
   const longitude = isSimulating && simulatedPosition ? simulatedPosition.lng : realLongitude;
   const effectiveHeading = isSimulating && simulatedPosition ? simulatedPosition.heading : realEffectiveHeading;
+  // Simulated speed: ~25 m/s highway driving for testing, otherwise use real speed
+  const speed = isSimulating ? 25 : realSpeed;
   const { alerts, loading: alertsLoading, cachedTileBounds } = useWazeAlerts({ bounds });
   const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
   const { placeName, loading: placeLoading } = useReverseGeocode(latitude, longitude);
   
   // Real-time collaboration - see other users on the map
-  const { otherUsers, liveCount, nearbyCount } = useRealtimeUsers({
+  const { otherUsers, liveCount } = useRealtimeUsers({
     latitude,
     longitude,
     heading: effectiveHeading,
@@ -482,8 +486,8 @@ export default function Home() {
     
     // Clear any alerted police so they can re-trigger during simulation
     alertedPoliceIdsRef.current.clear();
-    // Reset warmup so nearby alerts at sim start are silently marked as seen
-    alertWarmupDoneRef.current = false;
+    // Reset warmup timer so nearby alerts at sim start are silently marked as seen
+    pageLoadTimeRef.current = Date.now();
     // Also reset the cooldown
     lastAlertTimeRef.current = 0;
     
@@ -578,9 +582,14 @@ export default function Home() {
     // Skip if no alerts to process
     if (policeAlerts.length === 0) return;
 
-    // On initial load, silently mark all nearby alerts as "seen" without triggering
-    // This prevents annoying alerts when you first open the page with hazards already nearby
-    if (!alertWarmupDoneRef.current) {
+    const now = Date.now();
+    const timeSincePageLoad = now - pageLoadTimeRef.current;
+    const isInWarmupPeriod = timeSincePageLoad < WARMUP_PERIOD_MS;
+
+    // During warmup period: silently mark all nearby alerts as "seen" without triggering
+    // This prevents alerts for cops that are already nearby when you open the app
+    // or when your GPS position is still stabilizing
+    if (isInWarmupPeriod) {
       for (const alert of policeAlerts) {
         const distance = getDistanceInMeters(
           latitude,
@@ -594,12 +603,10 @@ export default function Home() {
           alertedPoliceIdsRef.current.add(alert.uuid);
         }
       }
-      alertWarmupDoneRef.current = true;
-      return; // Skip normal alert processing on first pass
+      return; // Skip normal alert processing during warmup
     }
 
     // Check if we're still in cooldown period
-    const now = Date.now();
     if (now - lastAlertTimeRef.current < ALERT_COOLDOWN_MS) {
       return; // Still in cooldown, don't trigger any new alerts
     }
@@ -782,7 +789,7 @@ export default function Home() {
         onLongPress={handleMapLongPress}
         pinLocation={contextMenu ? { lng: contextMenu.lng, lat: contextMenu.lat } : previewLocation ? { lng: previewLocation.lng, lat: previewLocation.lat } : null}
         route={route}
-        userLocation={latitude && longitude ? { latitude, longitude, heading, effectiveHeading } : null}
+        userLocation={latitude && longitude ? { latitude, longitude, heading, effectiveHeading, speed } : null}
         followMode={followMode}
         showTraffic={showTraffic}
         useSatellite={useSatellite}
@@ -1006,23 +1013,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Nearby Users Badge (delayed positions on map) */}
-        {nearbyCount > 1 && (
-          <div
-            className={`
-              flex items-center gap-2 px-3 py-2 rounded-xl backdrop-blur-xl
-              ${getContainerStyles(effectiveDarkMode)}
-              shadow-lg border
-            `}
-            title="Cars on map (5 min delay for privacy)"
-          >
-            <div className="flex items-center">
-              <span className="text-sm">🚗</span>
-            </div>
-            <span className="text-sm font-medium">{nearbyCount} nearby</span>
-          </div>
-        )}
-
         {/* Compass/Orientation Toggle */}
         <button
           onClick={toggleFollowMode}
@@ -1120,7 +1110,7 @@ export default function Home() {
                 {placeLoading ? "..." : (placeName || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)}
               </span>
               <span className={`text-[10px] ${effectiveDarkMode ? "text-gray-100" : "text-gray-400"}`}>
-                v0.1.0
+                v0.2.0
               </span>
             </div>
           </div>
@@ -1183,6 +1173,27 @@ export default function Home() {
 
       {/* Bottom Right - Control Buttons */}
       <div className="absolute bottom-6 right-4 z-30 flex gap-3">
+        {/* Dev Mode - Police Alert Test Button */}
+        {isDevMode && (
+          <button
+            onClick={() => {
+              setPoliceAlertToast({ show: true, expanding: true });
+              // Play sound if enabled
+              if (policeAlertSound && alertAudioRef.current) {
+                alertAudioRef.current.currentTime = 0;
+                alertAudioRef.current.play().catch(err => console.log("Audio play failed:", err));
+              }
+              // Auto-hide after 5 seconds
+              setTimeout(() => setPoliceAlertToast(null), 5000);
+            }}
+            className="px-4 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center gap-2 bg-blue-500/80 text-white border-blue-400/30 shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95"
+            aria-label="Test police alert"
+          >
+            <PoliceAlertIcon className="w-5 h-5" />
+            <span className="text-sm font-bold">Test Alert</span>
+          </button>
+        )}
+
         {/* Dev Mode Badge */}
         {isDevMode && !route && (
           <div className="px-4 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center bg-purple-500/80 text-white border-purple-400/30 shadow-lg border">
@@ -1306,38 +1317,43 @@ export default function Home() {
         </div>
       )}
 
-      {/* Police Alert Toast */}
+      {/* Police Alert - Full Screen Border Glow Effect */}
       {policeAlertToast?.show && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
-          <div
-            className={`
-              flex items-center gap-3 bg-blue-500 text-white shadow-2xl
-              transition-all duration-500 ease-out overflow-hidden
-              ${policeAlertToast.expanding 
-                ? "px-6 py-4 rounded-2xl min-w-[280px] opacity-100" 
-                : "w-14 h-14 rounded-full justify-center opacity-90"
-              }
-            `}
-          >
-            {/* Police icon - always visible */}
-            <div className={`
-              flex-shrink-0 transition-all duration-300
-              ${policeAlertToast.expanding ? "" : "scale-110"}
-            `}>
-              <PoliceAlertIcon className="w-7 h-7" />
+        <div className="fixed inset-0 z-50 pointer-events-none overflow-hidden police-alert-container">
+          {/* Blue glow layer */}
+          <div 
+            className="absolute inset-0 police-glow-blue"
+            style={{
+              background: `
+                linear-gradient(to bottom, rgba(59, 130, 246, 0.7), transparent 30%),
+                linear-gradient(to top, rgba(59, 130, 246, 0.7), transparent 30%),
+                linear-gradient(to right, rgba(59, 130, 246, 0.7), transparent 20%),
+                linear-gradient(to left, rgba(59, 130, 246, 0.7), transparent 20%)
+              `,
+            }}
+          />
+          
+          {/* Red glow layer */}
+          <div 
+            className="absolute inset-0 police-glow-red"
+            style={{
+              background: `
+                linear-gradient(to bottom, rgba(239, 68, 68, 0.7), transparent 30%),
+                linear-gradient(to top, rgba(239, 68, 68, 0.7), transparent 30%),
+                linear-gradient(to right, rgba(239, 68, 68, 0.7), transparent 20%),
+                linear-gradient(to left, rgba(239, 68, 68, 0.7), transparent 20%)
+              `,
+            }}
+          />
+          
+          {/* Pull-down notification at top */}
+          <div className="absolute top-0 left-0 right-0 flex justify-center police-pulldown">
+            <div className="bg-black/90 backdrop-blur-md text-white px-12 py-6 rounded-b-3xl shadow-2xl border-b border-l border-r border-white/20">
+              <div className="flex items-center gap-4">
+                <PoliceAlertIcon className="w-12 h-12 police-icon" />
+                <span className="text-4xl font-bold tracking-wide">POLICE AHEAD</span>
+              </div>
             </div>
-            
-            {/* Text - only visible when expanded */}
-            <div className={`
-              flex flex-col transition-all duration-300 delay-150
-              ${policeAlertToast.expanding ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 absolute"}
-            `}>
-              <span className="text-lg font-bold">Police Ahead</span>
-              <span className="text-sm text-blue-100">Slow down and stay alert</span>
-            </div>
-            
-            {/* Pulse ring animation */}
-            <div className="absolute inset-0 rounded-2xl border-2 border-white/30 animate-ping" />
           </div>
         </div>
       )}
@@ -1370,10 +1386,82 @@ export default function Home() {
         isDarkMode={effectiveDarkMode}
       />
 
-      {/* Hide Mapbox attribution */}
+      {/* Global styles for police alert animations */}
       <style jsx global>{`
-        .mapboxgl-ctrl-attrib {
-          display: none !important;
+        .police-alert-container {
+          animation: container-fade 3s ease-out forwards;
+        }
+        
+        @keyframes container-fade {
+          0%, 85% {
+            opacity: 1;
+          }
+          100% {
+            opacity: 0;
+          }
+        }
+        
+        .police-glow-blue {
+          animation: flash-blue 0.5s ease-in-out infinite;
+        }
+        
+        .police-glow-red {
+          animation: flash-red 0.5s ease-in-out infinite;
+        }
+        
+        @keyframes flash-blue {
+          0%, 100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0;
+          }
+        }
+        
+        @keyframes flash-red {
+          0%, 100% {
+            opacity: 0;
+          }
+          50% {
+            opacity: 1;
+          }
+        }
+        
+        .police-pulldown {
+          animation: pulldown-appear 0.4s ease-out, pulldown-glow 0.5s ease-in-out infinite;
+        }
+        
+        @keyframes pulldown-appear {
+          from {
+            opacity: 0;
+            transform: translateY(-100%);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        
+        @keyframes pulldown-glow {
+          0%, 100% {
+            filter: drop-shadow(0 0 30px rgba(59, 130, 246, 0.8));
+          }
+          50% {
+            filter: drop-shadow(0 0 30px rgba(239, 68, 68, 0.8));
+          }
+        }
+        
+        .police-icon {
+          animation: icon-color 0.5s ease-in-out infinite;
+        }
+        
+        @keyframes icon-color {
+          0%, 100% {
+            color: rgb(96, 165, 250);
+          }
+          50% {
+            color: rgb(248, 113, 113);
+          }
         }
       `}</style>
 

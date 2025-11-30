@@ -27,6 +27,7 @@ interface MapProps {
     longitude: number; 
     heading?: number | null;
     effectiveHeading?: number | null;
+    speed?: number | null; // m/s
   } | null;
   followMode?: boolean;
   showTraffic?: boolean;
@@ -283,6 +284,14 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   const POSITION_LERP_SPEED = 0.15; // How fast to interpolate position (0-1, higher = faster)
   const HEADING_LERP_SPEED = 0.15; // How fast to interpolate heading
   const CAMERA_FOLLOW_SPEED = 0.12; // How fast camera follows (increased for snappier tracking)
+  
+  // Speed-based zoom config
+  const lastSpeedRef = useRef<number | null>(null);
+  const speedZoomTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const SPEED_ZOOM_DEBOUNCE = 2000; // ms - wait before adjusting zoom after speed change
+  const SPEED_THRESHOLD_LOW = 8; // m/s (~29 km/h, ~18 mph) - residential driving
+  const SPEED_THRESHOLD_HIGH = 22; // m/s (~79 km/h, ~49 mph) - highway driving
+  const ZOOM_ADJUSTMENT_AMOUNT = 0.8; // How much to adjust zoom by
 
   // Update follow mode ref when prop changes
   useEffect(() => {
@@ -441,6 +450,82 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       }
     };
   }, [animatePosition]);
+
+  // Speed-based dynamic zoom adjustment
+  // When driving faster, zoom out for more context; when slower, zoom in for detail
+  useEffect(() => {
+    if (!map.current || !mapLoaded || !isAutoCentering.current) return;
+    
+    const currentSpeed = userLocation?.speed;
+    if (currentSpeed === null || currentSpeed === undefined) return;
+    
+    const lastSpeed = lastSpeedRef.current;
+    
+    // Initialize last speed on first reading
+    if (lastSpeed === null) {
+      lastSpeedRef.current = currentSpeed;
+      return;
+    }
+    
+    // Determine if we crossed a speed threshold
+    const wasSlowDriving = lastSpeed < SPEED_THRESHOLD_LOW;
+    const isSlowDriving = currentSpeed < SPEED_THRESHOLD_LOW;
+    const wasFastDriving = lastSpeed >= SPEED_THRESHOLD_HIGH;
+    const isFastDriving = currentSpeed >= SPEED_THRESHOLD_HIGH;
+    
+    // Check for threshold crossings
+    let shouldZoomOut = false;
+    let shouldZoomIn = false;
+    
+    // Transition from slow to medium/fast -> zoom out
+    if (wasSlowDriving && !isSlowDriving) {
+      shouldZoomOut = true;
+    }
+    // Transition from medium to fast -> zoom out more
+    else if (!wasFastDriving && isFastDriving) {
+      shouldZoomOut = true;
+    }
+    // Transition from fast to medium/slow -> zoom in
+    else if (wasFastDriving && !isFastDriving) {
+      shouldZoomIn = true;
+    }
+    // Transition from medium to slow -> zoom in more
+    else if (!wasSlowDriving && isSlowDriving) {
+      shouldZoomIn = true;
+    }
+    
+    // Update last speed
+    lastSpeedRef.current = currentSpeed;
+    
+    // Only adjust if threshold was crossed
+    if (!shouldZoomOut && !shouldZoomIn) return;
+    
+    // Clear any pending zoom adjustment
+    if (speedZoomTimeoutRef.current) {
+      clearTimeout(speedZoomTimeoutRef.current);
+    }
+    
+    // Debounce the zoom adjustment to prevent rapid changes
+    speedZoomTimeoutRef.current = setTimeout(() => {
+      if (!map.current || !isAutoCentering.current || userInteractingRef.current || isZoomingRef.current) return;
+      
+      const currentZoom = map.current.getZoom();
+      const targetZoom = shouldZoomOut 
+        ? Math.max(currentZoom - ZOOM_ADJUSTMENT_AMOUNT, 11) // Min zoom ~11 for highway context
+        : Math.min(currentZoom + ZOOM_ADJUSTMENT_AMOUNT, 17); // Max zoom ~17 for residential detail
+      
+      map.current.easeTo({
+        zoom: targetZoom,
+        duration: 1000,
+      });
+    }, SPEED_ZOOM_DEBOUNCE);
+    
+    return () => {
+      if (speedZoomTimeoutRef.current) {
+        clearTimeout(speedZoomTimeoutRef.current);
+      }
+    };
+  }, [userLocation?.speed, mapLoaded]);
 
   // Update night overlay opacity based on time of day (satellite mode only)
   useEffect(() => {
@@ -1632,49 +1717,37 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       const rotation = user.h ?? 0;
 
       if (existingMarker) {
-        // Update position
+        // Update position - setLngLat positions the marker at geographic coordinates
         existingMarker.setLngLat([user.lng, user.lat]);
         // Update rotation
         const el = existingMarker.getElement();
         const carEl = el.querySelector(".other-user-car") as HTMLElement;
         if (carEl) {
-          carEl.style.transform = `translate(-50%, -50%) rotate(${rotation}deg)`;
+          carEl.style.transform = `rotate(${rotation}deg)`;
         }
       } else {
-        // Create new marker
+        // Create new marker - structure similar to user marker for consistent behavior
         const el = document.createElement("div");
         el.className = "other-user-marker";
+        
+        // Use a container-based approach like the user marker
+        // This ensures the marker is properly geo-positioned and doesn't scale with zoom
         el.innerHTML = `
-          <div class="other-user-car" style="
-            position: absolute;
-            top: 50%;
-              left: 50%;
-              transform: translate(-50%, -50%) rotate(${rotation}deg);
-              width: 18px;
-              height: 28px;
-              transition: transform 0.3s ease-out;
-          ">
+          <div class="other-user-container">
+            <div class="other-user-car" style="transform: rotate(${rotation}deg);">
             <img 
               src="${carIconPath}" 
               alt="Other driver" 
-              style="width: 100%; height: 100%; object-fit: contain;"
               onerror="this.src='/cars/blue.png'"
             />
           </div>
-          <div class="other-user-shadow" style="
-            position: absolute;
-            top: 50%;
-              left: 50%;
-              transform: translate(-50%, -50%);
-              width: 20px;
-              height: 20px;
-              background: radial-gradient(ellipse, rgba(0,0,0,0.15) 0%, transparent 70%);
-              border-radius: 50%;
-              z-index: -1;
-          "></div>
+            <div class="other-user-shadow"></div>
+          </div>
         `;
 
-        const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
+        // Create marker without explicit anchor - let CSS handle centering
+        // This matches the user marker pattern which works correctly
+        const marker = new mapboxgl.Marker({ element: el })
           .setLngLat([user.lng, user.lat])
           .addTo(map.current!);
 
@@ -1958,9 +2031,42 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         
         .other-user-marker {
           z-index: 5 !important;
-          width: 24px;
-          height: 32px;
+        }
+        
+        .other-user-container {
           position: relative;
+          width: 32px;
+          height: 40px;
+        }
+        
+        .other-user-car {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          margin-left: -9px;
+          margin-top: -14px;
+          width: 18px;
+          height: 28px;
+          transition: transform 0.3s ease-out;
+        }
+        
+        .other-user-car img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+        }
+        
+        .other-user-shadow {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          margin-left: -10px;
+          margin-top: -10px;
+          width: 20px;
+          height: 20px;
+          background: radial-gradient(ellipse, rgba(0,0,0,0.15) 0%, transparent 70%);
+          border-radius: 50%;
+          z-index: -1;
         }
         
         .alert-popup-container .mapboxgl-popup-content {
