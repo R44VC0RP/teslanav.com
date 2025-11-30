@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Map, type MapRef } from "@/components/Map";
 import { SettingsModal } from "@/components/SettingsModal";
+import { FeedbackModal } from "@/components/FeedbackModal";
 import { NavigateSearch } from "@/components/NavigateSearch";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
@@ -52,6 +53,7 @@ export default function Home() {
   const [followMode, setFollowMode] = useState(false);
   const [isCentered, setIsCentered] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [showWazeAlerts, setShowWazeAlerts] = useState(true);
   const [showSpeedCameras, setShowSpeedCameras] = useState(true);
   const [showTraffic, setShowTraffic] = useState(true);
@@ -110,8 +112,9 @@ export default function Home() {
   // Track last route origin to detect significant movement
   const lastRouteOriginRef = useRef<{ lat: number; lng: number } | null>(null);
   const routeUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const ROUTE_UPDATE_DISTANCE_THRESHOLD = 50; // meters - recalculate if user moves this far
-  const ROUTE_UPDATE_DEBOUNCE = 2000; // ms - minimum time between route updates
+  const lastRerouteTimeRef = useRef<number>(0);
+  const OFF_ROUTE_THRESHOLD = 50; // meters - reroute if user is this far from route
+  const REROUTE_COOLDOWN = 5000; // ms - minimum time between reroutes to avoid spam
 
   // Calculate distance between two coordinates in meters (Haversine formula)
   const getDistanceInMeters = useCallback((lat1: number, lng1: number, lat2: number, lng2: number): number => {
@@ -125,6 +128,66 @@ export default function Home() {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   }, []);
+
+  // Calculate distance from a point to a line segment (for off-route detection)
+  const getDistanceToSegment = useCallback((
+    pointLat: number, pointLng: number,
+    segStartLat: number, segStartLng: number,
+    segEndLat: number, segEndLng: number
+  ): number => {
+    // Convert to a local coordinate system (meters) for simpler math
+    const toMeters = (lat: number, lng: number, refLat: number, refLng: number) => {
+      const latDiff = (lat - refLat) * 111320; // ~111km per degree latitude
+      const lngDiff = (lng - refLng) * 111320 * Math.cos(refLat * Math.PI / 180);
+      return { x: lngDiff, y: latDiff };
+    };
+    
+    const p = toMeters(pointLat, pointLng, segStartLat, segStartLng);
+    const a = { x: 0, y: 0 }; // segment start is origin
+    const b = toMeters(segEndLat, segEndLng, segStartLat, segStartLng);
+    
+    // Vector from a to b
+    const ab = { x: b.x - a.x, y: b.y - a.y };
+    // Vector from a to p
+    const ap = { x: p.x - a.x, y: p.y - a.y };
+    
+    // Project point onto line, clamped to segment
+    const abLengthSq = ab.x * ab.x + ab.y * ab.y;
+    if (abLengthSq === 0) {
+      // Segment is a point
+      return Math.sqrt(ap.x * ap.x + ap.y * ap.y);
+    }
+    
+    let t = (ap.x * ab.x + ap.y * ab.y) / abLengthSq;
+    t = Math.max(0, Math.min(1, t)); // Clamp to [0, 1]
+    
+    // Closest point on segment
+    const closest = { x: a.x + t * ab.x, y: a.y + t * ab.y };
+    
+    // Distance from point to closest point
+    const dx = p.x - closest.x;
+    const dy = p.y - closest.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }, []);
+
+  // Calculate minimum distance from a point to the entire route polyline
+  const getDistanceToRoute = useCallback((lat: number, lng: number, routeCoords: [number, number][]): number => {
+    if (routeCoords.length < 2) return Infinity;
+    
+    let minDistance = Infinity;
+    
+    for (let i = 0; i < routeCoords.length - 1; i++) {
+      const [startLng, startLat] = routeCoords[i];
+      const [endLng, endLat] = routeCoords[i + 1];
+      
+      const distance = getDistanceToSegment(lat, lng, startLat, startLng, endLat, endLng);
+      if (distance < minDistance) {
+        minDistance = distance;
+      }
+    }
+    
+    return minDistance;
+  }, [getDistanceToSegment]);
 
   // Fetch route when destination is set
   const fetchRoute = useCallback(async (destLng: number, destLat: number, isUpdate = false) => {
@@ -167,28 +230,38 @@ export default function Home() {
     }
   }, [latitude, longitude]);
 
-  // Recalculate route when user moves significantly during navigation
+  // Recalculate route when user deviates from the planned route (off-route detection)
   useEffect(() => {
-    if (!destination || !latitude || !longitude || !lastRouteOriginRef.current) return;
+    if (!destination || !latitude || !longitude || !route) return;
     
-    const distanceMoved = getDistanceInMeters(
-      lastRouteOriginRef.current.lat,
-      lastRouteOriginRef.current.lng,
-      latitude,
-      longitude
-    );
+    // Check if we're off-route by measuring distance to the route line
+    const distanceToRoute = getDistanceToRoute(latitude, longitude, route.geometry.coordinates);
     
-    // Only recalculate if user has moved beyond threshold
-    if (distanceMoved >= ROUTE_UPDATE_DISTANCE_THRESHOLD) {
+    // If user is too far from the route, they've deviated - trigger reroute
+    if (distanceToRoute > OFF_ROUTE_THRESHOLD) {
+      const now = Date.now();
+      
+      // Respect cooldown to avoid rerouting spam
+      if (now - lastRerouteTimeRef.current < REROUTE_COOLDOWN) {
+        return;
+      }
+      
       // Clear any pending update
       if (routeUpdateTimeoutRef.current) {
         clearTimeout(routeUpdateTimeoutRef.current);
       }
       
-      // Debounce the route update
+      // Small debounce to ensure user has actually deviated (not just GPS jitter)
       routeUpdateTimeoutRef.current = setTimeout(() => {
+        console.log(`Off-route detected: ${Math.round(distanceToRoute)}m from route. Rerouting...`);
+        lastRerouteTimeRef.current = Date.now();
+        lastRouteOriginRef.current = { lat: latitude, lng: longitude };
         fetchRoute(destination.lng, destination.lat, true);
-      }, ROUTE_UPDATE_DEBOUNCE);
+        
+        posthog.capture("auto_rerouted", {
+          distance_from_route_meters: Math.round(distanceToRoute),
+        });
+      }, 1000);
     }
     
     return () => {
@@ -196,7 +269,7 @@ export default function Home() {
         clearTimeout(routeUpdateTimeoutRef.current);
       }
     };
-  }, [latitude, longitude, destination, fetchRoute, getDistanceInMeters]);
+  }, [latitude, longitude, destination, route, fetchRoute, getDistanceToRoute]);
 
   // Handle destination selection from search - just preview, don't navigate yet
   const handleSelectDestination = useCallback((lng: number, lat: number, placeName: string) => {
@@ -1070,6 +1143,22 @@ export default function Home() {
           <SettingsIcon className="w-7 h-7" />
         </button>
 
+        {/* Feedback Button */}
+        <button
+          onClick={() => {
+            setShowFeedback(true);
+            posthog.capture("feedback_modal_opened");
+          }}
+          className={`
+            w-16 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center
+            ${getButtonStyles(effectiveDarkMode)}
+            shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
+          `}
+          aria-label="Send feedback"
+        >
+          <HelpIcon className="w-7 h-7" />
+        </button>
+
         {/* Satellite Toggle Button */}
         <button
           onClick={() => {
@@ -1274,6 +1363,13 @@ export default function Home() {
         onTogglePoliceAlertSound={handleTogglePoliceAlertSound}
       />
 
+      {/* Feedback Modal */}
+      <FeedbackModal
+        isOpen={showFeedback}
+        onClose={() => setShowFeedback(false)}
+        isDarkMode={effectiveDarkMode}
+      />
+
       {/* Hide Mapbox attribution */}
       <style jsx global>{`
         .mapboxgl-ctrl-attrib {
@@ -1467,6 +1563,14 @@ function TeslaIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 5.362l2.475-3.026s4.245.09 8.471 2.054c-1.082 1.636-3.231 2.438-3.231 2.438-.146-1.439-1.154-1.79-4.354-1.79L12 24 8.619 5.038c-3.18 0-4.188.351-4.335 1.79 0 0-2.148-.802-3.23-2.438C5.28 2.426 9.525 2.336 9.525 2.336L12 5.362z"/>
+    </svg>
+  );
+}
+
+function HelpIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   );
 }

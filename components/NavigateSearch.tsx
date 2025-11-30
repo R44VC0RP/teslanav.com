@@ -195,7 +195,7 @@ export function NavigateSearch({
           value={query}
           onChange={(e) => handleInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Search destination..."
+          placeholder="Search places or addresses..."
           className={`
             flex-1 text-base font-medium outline-none
             ${inputStyles}
