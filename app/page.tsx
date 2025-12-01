@@ -912,8 +912,8 @@ export default function Home() {
         );
       })()}
 
-      {/* Top Left - Navigate Search + Destination Card */}
-      <div className="absolute top-4 left-4 z-30 flex flex-col gap-3">
+      {/* Top Left - Navigate Search + Destination Card (hidden - navigation in development) */}
+      <div className="absolute top-4 left-4 z-30 flex flex-col gap-3 hidden">
         <NavigateSearch
           isDarkMode={effectiveDarkMode}
           onSelectDestination={handleSelectDestination}

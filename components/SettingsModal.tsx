@@ -422,6 +422,27 @@ export function SettingsModal({
               </div>
             </div>
 
+            {/* Known Issues Section */}
+            <div>
+              <h3 className={`text-base font-medium uppercase tracking-wider mb-4 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                Known Issues
+              </h3>
+              <div className={`
+                p-5 rounded-xl
+                ${isDarkMode ? "bg-amber-500/10 border border-amber-500/20" : "bg-amber-50 border border-amber-200"}
+              `}>
+                <div className="flex items-center gap-4">
+                  <span className="text-3xl">🔧</span>
+                  <div>
+                    <div className="text-lg font-medium">Search & Navigation</div>
+                    <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                      We are aware that the search and navigation functionality is currently not working as expected. We&apos;re actively working on a fix. Thank you for your patience!
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Support Section */}
             <div>
               <h3 className={`text-base font-medium uppercase tracking-wider mb-4 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
