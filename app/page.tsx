@@ -50,7 +50,19 @@ function formatDistance(meters: number): string {
 }
 
 export default function Home() {
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  // Use lazy initialization to read from localStorage immediately
+  // This ensures the map initializes with the correct theme before first render
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      const savedTheme = localStorage.getItem("teslanav-theme");
+      if (savedTheme !== null) {
+        return savedTheme === "dark";
+      }
+      // Fall back to system preference if no saved theme
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    return false;
+  });
   const [bounds, setBounds] = useState<MapBounds | null>(null);
   const [followMode, setFollowMode] = useState(false);
   const [isCentered, setIsCentered] = useState(true);
@@ -58,8 +70,20 @@ export default function Home() {
   const [showFeedback, setShowFeedback] = useState(false);
   const [showWazeAlerts, setShowWazeAlerts] = useState(true);
   const [showSpeedCameras, setShowSpeedCameras] = useState(true);
-  const [showTraffic, setShowTraffic] = useState(true);
-  const [useSatellite, setUseSatellite] = useState(false);
+  const [showTraffic, setShowTraffic] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("teslanav-traffic");
+      return saved !== null ? saved === "true" : true;
+    }
+    return true;
+  });
+  const [useSatellite, setUseSatellite] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("teslanav-satellite");
+      return saved === "true";
+    }
+    return false;
+  });
   const [showAvatarPulse, setShowAvatarPulse] = useState(true);
   const mapRef = useRef<MapRef>(null);
 
@@ -79,9 +103,21 @@ export default function Home() {
   const [isMobile, setIsMobile] = useState(false);
   const [dismissedMobileWarning, setDismissedMobileWarning] = useState(false);
   
-  // Police alert settings
-  const [policeAlertDistance, setPoliceAlertDistance] = useState(500); // meters, 0 = off
-  const [policeAlertSound, setPoliceAlertSound] = useState(false); // off by default
+  // Police alert settings - use lazy init to read from localStorage immediately
+  const [policeAlertDistance, setPoliceAlertDistance] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("teslanav-police-distance");
+      return saved !== null ? parseInt(saved, 10) : 500;
+    }
+    return 500; // meters, 0 = off
+  });
+  const [policeAlertSound, setPoliceAlertSound] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("teslanav-police-sound");
+      return saved === "true";
+    }
+    return false; // off by default
+  });
   const [policeAlertToast, setPoliceAlertToast] = useState<{ show: boolean; expanding: boolean } | null>(null);
   const alertedPoliceIdsRef = useRef<Set<string>>(new Set());
   const alertAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -403,27 +439,10 @@ export default function Home() {
     setContextMenu(null);
   }, []);
 
-  // Load settings from localStorage on mount
+  // Initialize audio element on mount
+  // Note: Other settings are loaded via lazy useState initialization above
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const savedSatellite = localStorage.getItem("teslanav-satellite");
-      if (savedSatellite !== null) {
-        setUseSatellite(savedSatellite === "true");
-      }
-      const savedTraffic = localStorage.getItem("teslanav-traffic");
-      if (savedTraffic !== null) {
-        setShowTraffic(savedTraffic === "true");
-      }
-      // Load police alert settings
-      const savedPoliceDistance = localStorage.getItem("teslanav-police-distance");
-      if (savedPoliceDistance !== null) {
-        setPoliceAlertDistance(parseInt(savedPoliceDistance, 10));
-      }
-      const savedPoliceSound = localStorage.getItem("teslanav-police-sound");
-      if (savedPoliceSound !== null) {
-        setPoliceAlertSound(savedPoliceSound === "true");
-      }
-      
       // Initialize audio element
       alertAudioRef.current = new Audio("/alert-sound.mp3");
     }
@@ -699,14 +718,18 @@ export default function Home() {
     }
   }, [latitude, longitude, alerts, policeAlertDistance, policeAlertSound, showWazeAlerts, getDistanceInMeters, effectiveHeading, isAlertAhead]);
 
-  // Check system dark mode preference
+  // Listen for system dark mode preference changes
+  // Only update if user hasn't explicitly set a preference
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      setIsDarkMode(prefersDark);
-
       const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-      const handler = (e: MediaQueryListEvent) => setIsDarkMode(e.matches);
+      const handler = (e: MediaQueryListEvent) => {
+        // Only apply system preference if user hasn't explicitly set one
+        const savedTheme = localStorage.getItem("teslanav-theme");
+        if (savedTheme === null) {
+          setIsDarkMode(e.matches);
+        }
+      };
       mediaQuery.addEventListener("change", handler);
       return () => mediaQuery.removeEventListener("change", handler);
     }
@@ -738,6 +761,11 @@ export default function Home() {
   const toggleDarkMode = useCallback(() => {
     setIsDarkMode((prev) => {
       const newValue = !prev;
+
+      // Persist to localStorage
+      if (typeof window !== "undefined") {
+        localStorage.setItem("teslanav-theme", newValue ? "dark" : "light");
+      }
 
       // Track dark mode toggle
       posthog.capture("dark_mode_toggled", {
@@ -1326,22 +1354,24 @@ export default function Home() {
           <PlusIcon className="w-7 h-7" />
         </button>
 
-        {/* Dark Mode Toggle */}
-        <button
-          onClick={toggleDarkMode}
-          className={`
-            w-16 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center
-            ${getButtonStyles(effectiveDarkMode)}
-            shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
-          `}
-          aria-label="Toggle dark mode"
-        >
-          {isDarkMode ? (
-            <SunIcon className="w-7 h-7" />
-          ) : (
-            <MoonIcon className="w-7 h-7" />
-          )}
-        </button>
+        {/* Dark Mode Toggle - Hidden in satellite mode since satellite always uses dark UI */}
+        {!useSatellite && (
+          <button
+            onClick={toggleDarkMode}
+            className={`
+              w-16 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center
+              ${getButtonStyles(effectiveDarkMode)}
+              shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
+            `}
+            aria-label="Toggle dark mode"
+          >
+            {isDarkMode ? (
+              <SunIcon className="w-7 h-7" />
+            ) : (
+              <MoonIcon className="w-7 h-7" />
+            )}
+          </button>
+        )}
       </div>
 
       {/* Loading Overlay - pointer-events-none allows buttons to remain clickable */}
