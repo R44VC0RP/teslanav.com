@@ -125,6 +125,22 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
 
         {/* Content */}
         <div className="px-6 py-5 space-y-4">
+          {/* Known Issue Notice */}
+          <div className={`
+            flex items-start gap-3 p-4 rounded-xl
+            ${isDarkMode ? "bg-amber-500/10 border border-amber-500/20" : "bg-amber-50 border border-amber-200"}
+          `}>
+            <span className="text-xl flex-shrink-0">🔧</span>
+            <div>
+              <p className={`text-sm font-medium ${isDarkMode ? "text-amber-200" : "text-amber-800"}`}>
+                Known Issue: Search & Navigation
+              </p>
+              <p className={`text-xs mt-1 ${isDarkMode ? "text-amber-200/70" : "text-amber-700"}`}>
+                We&apos;re aware that search and navigation features are currently not working. A fix is in progress!
+              </p>
+            </div>
+          </div>
+
           {submitStatus === "success" ? (
             <div className="flex flex-col items-center justify-center py-8 gap-4">
               <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">
