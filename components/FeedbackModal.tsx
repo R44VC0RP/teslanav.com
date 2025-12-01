@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import Image from "next/image";
 import posthog from "posthog-js";
 
 interface FeedbackModalProps {
@@ -88,22 +89,22 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
       {/* Modal */}
       <div
         className={`
-          relative w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden
+          relative w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto
           ${isDarkMode ? "bg-[#1a1a1a] text-white" : "bg-white text-black"}
           border ${isDarkMode ? "border-white/10" : "border-black/10"}
         `}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className={`px-6 py-5 border-b ${isDarkMode ? "border-white/10" : "border-black/10"}`}>
+        <div className={`px-8 py-6 border-b ${isDarkMode ? "border-white/10" : "border-black/10"}`}>
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-xl ${isDarkMode ? "bg-blue-500/20" : "bg-blue-500/10"}`}>
-                <FeedbackIcon className="w-6 h-6 text-blue-500" />
+            <div className="flex items-center gap-4">
+              <div className={`p-3 rounded-xl ${isDarkMode ? "bg-blue-500/20" : "bg-blue-500/10"}`}>
+                <FeedbackIcon className="w-8 h-8 text-blue-500" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold">Send Feedback</h2>
-                <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                <h2 className="text-2xl font-semibold">Send Feedback</h2>
+                <p className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
                   Help us improve TeslaNav
                 </p>
               </div>
@@ -112,43 +113,27 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
               onClick={handleClose}
               disabled={isSubmitting}
               className={`
-                p-2 rounded-xl transition-colors
+                p-3 rounded-xl transition-colors
                 ${isDarkMode ? "hover:bg-white/10" : "hover:bg-black/5"}
                 disabled:opacity-50
               `}
               aria-label="Close"
             >
-              <CloseIcon className="w-6 h-6" />
+              <CloseIcon className="w-7 h-7" />
             </button>
           </div>
         </div>
 
         {/* Content */}
-        <div className="px-6 py-5 space-y-4">
-          {/* Known Issue Notice */}
-          <div className={`
-            flex items-start gap-3 p-4 rounded-xl
-            ${isDarkMode ? "bg-amber-500/10 border border-amber-500/20" : "bg-amber-50 border border-amber-200"}
-          `}>
-            <span className="text-xl flex-shrink-0">🔧</span>
-            <div>
-              <p className={`text-sm font-medium ${isDarkMode ? "text-amber-200" : "text-amber-800"}`}>
-                Known Issue: Search & Navigation
-              </p>
-              <p className={`text-xs mt-1 ${isDarkMode ? "text-amber-200/70" : "text-amber-700"}`}>
-                We&apos;re aware that search and navigation features are currently not working. A fix is in progress!
-              </p>
-            </div>
-          </div>
-
+        <div className="px-8 py-6 space-y-5">
           {submitStatus === "success" ? (
-            <div className="flex flex-col items-center justify-center py-8 gap-4">
-              <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">
-                <CheckIcon className="w-8 h-8 text-green-500" />
+            <div className="flex flex-col items-center justify-center py-10 gap-5">
+              <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center">
+                <CheckIcon className="w-10 h-10 text-green-500" />
               </div>
               <div className="text-center">
-                <p className="text-lg font-semibold">Thank you!</p>
-                <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                <p className="text-2xl font-semibold">Thank you!</p>
+                <p className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
                   Your feedback has been sent successfully.
                 </p>
               </div>
@@ -159,7 +144,7 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
               <div>
                 <label
                   htmlFor="feedback"
-                  className={`block text-sm font-medium mb-2 ${isDarkMode ? "text-gray-300" : "text-gray-700"}`}
+                  className={`block text-base font-medium mb-2 ${isDarkMode ? "text-gray-300" : "text-gray-700"}`}
                 >
                   Your Feedback <span className="text-red-500">*</span>
                 </label>
@@ -172,17 +157,17 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
                   maxLength={5000}
                   disabled={isSubmitting}
                   className={`
-                    w-full px-4 py-3 rounded-xl border resize-none
+                    w-full px-5 py-4 rounded-xl border resize-none
                     ${isDarkMode
                       ? "bg-white/5 border-white/10 text-white placeholder-gray-500 focus:border-blue-500/50"
                       : "bg-black/5 border-black/10 text-black placeholder-gray-400 focus:border-blue-500/50"
                     }
                     focus:outline-none focus:ring-2 focus:ring-blue-500/20
                     transition-colors disabled:opacity-50
-                    text-base
+                    text-lg
                   `}
                 />
-                <div className={`text-xs mt-1 text-right ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}>
+                <div className={`text-sm mt-2 text-right ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}>
                   {feedback.length}/5000
                 </div>
               </div>
@@ -191,7 +176,7 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
               <div>
                 <label
                   htmlFor="email"
-                  className={`block text-sm font-medium mb-2 ${isDarkMode ? "text-gray-300" : "text-gray-700"}`}
+                  className={`block text-base font-medium mb-2 ${isDarkMode ? "text-gray-300" : "text-gray-700"}`}
                 >
                   Your Email <span className={isDarkMode ? "text-gray-500" : "text-gray-400"}>(optional)</span>
                 </label>
@@ -203,19 +188,46 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
                   placeholder="email@example.com"
                   disabled={isSubmitting}
                   className={`
-                    w-full px-4 py-3 rounded-xl border
+                    w-full px-5 py-4 rounded-xl border
                     ${isDarkMode
                       ? "bg-white/5 border-white/10 text-white placeholder-gray-500 focus:border-blue-500/50"
                       : "bg-black/5 border-black/10 text-black placeholder-gray-400 focus:border-blue-500/50"
                     }
                     focus:outline-none focus:ring-2 focus:ring-blue-500/20
                     transition-colors disabled:opacity-50
-                    text-base
+                    text-lg
                   `}
                 />
-                <p className={`text-xs mt-1 ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}>
+                <p className={`text-sm mt-2 ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}>
                   Include if you&apos;d like a response
                 </p>
+              </div>
+
+              {/* Donation QR Code Section */}
+              <div className={`
+                flex flex-col sm:flex-row items-center gap-5 p-5 rounded-xl
+                ${isDarkMode ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-emerald-50 border border-emerald-200"}
+              `}>
+                <div className="flex-shrink-0">
+                  <Image
+                    src="/teslanav-donation-qrcode.png"
+                    alt="Donation QR Code"
+                    width={120}
+                    height={120}
+                    className="rounded-lg"
+                  />
+                </div>
+                <div className="text-center sm:text-left">
+                  <div className="flex items-center justify-center sm:justify-start gap-2 mb-2">
+                    <span className="text-2xl">⚡</span>
+                    <p className={`text-lg font-semibold ${isDarkMode ? "text-emerald-300" : "text-emerald-700"}`}>
+                      Expedite Your Request
+                    </p>
+                  </div>
+                  <p className={`text-base ${isDarkMode ? "text-emerald-200/80" : "text-emerald-600"}`}>
+                    Donate to help support TeslaNav and your feature request or bug fix will be prioritized!
+                  </p>
+                </div>
               </div>
 
               {/* Honeypot field - hidden from users, only bots will fill this */}
@@ -234,9 +246,9 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
 
               {/* Error message */}
               {submitStatus === "error" && (
-                <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10 text-red-500">
-                  <ErrorIcon className="w-5 h-5 flex-shrink-0" />
-                  <span className="text-sm">{errorMessage}</span>
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-red-500/10 text-red-500">
+                  <ErrorIcon className="w-6 h-6 flex-shrink-0" />
+                  <span className="text-base">{errorMessage}</span>
                 </div>
               )}
             </>
@@ -245,13 +257,13 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
 
         {/* Footer */}
         {submitStatus !== "success" && (
-          <div className={`px-6 py-4 border-t ${isDarkMode ? "border-white/10" : "border-black/10"}`}>
-            <div className="flex gap-3">
+          <div className={`px-8 py-5 border-t ${isDarkMode ? "border-white/10" : "border-black/10"}`}>
+            <div className="flex gap-4">
               <button
                 onClick={handleClose}
                 disabled={isSubmitting}
                 className={`
-                  flex-1 h-14 rounded-xl font-medium text-lg
+                  flex-1 h-16 rounded-xl font-semibold text-xl
                   ${isDarkMode ? "bg-white/10 hover:bg-white/15" : "bg-black/5 hover:bg-black/10"}
                   transition-colors disabled:opacity-50
                 `}
@@ -262,20 +274,20 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
                 onClick={handleSubmit}
                 disabled={isSubmitting || !feedback.trim()}
                 className={`
-                  flex-1 h-14 rounded-xl font-medium text-lg
+                  flex-1 h-16 rounded-xl font-semibold text-xl
                   bg-blue-500 text-white hover:bg-blue-600
                   transition-all disabled:opacity-50 disabled:cursor-not-allowed
-                  flex items-center justify-center gap-2
+                  flex items-center justify-center gap-3
                 `}
               >
                 {isSubmitting ? (
                   <>
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     Sending...
                   </>
                 ) : (
                   <>
-                    <SendIcon className="w-5 h-5" />
+                    <SendIcon className="w-6 h-6" />
                     Send Feedback
                   </>
                 )}
