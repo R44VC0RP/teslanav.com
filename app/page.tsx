@@ -423,6 +423,18 @@ export default function Home() {
       if (savedPoliceSound !== null) {
         setPoliceAlertSound(savedPoliceSound === "true");
       }
+      // Load follow mode (compass orientation) setting
+      const savedFollowMode = localStorage.getItem("teslanav-follow-mode");
+      if (savedFollowMode !== null) {
+        const followModeValue = savedFollowMode === "true";
+        setFollowMode(followModeValue);
+        // Also apply it to the map when it loads
+        setTimeout(() => {
+          if (mapRef.current) {
+            mapRef.current.setFollowMode(followModeValue);
+          }
+        }, 100);
+      }
       
       // Initialize audio element
       alertAudioRef.current = new Audio("/alert-sound.mp3");
@@ -753,6 +765,11 @@ export default function Home() {
       const newValue = !prev;
       if (mapRef.current) {
         mapRef.current.setFollowMode(newValue);
+      }
+
+      // Save to localStorage
+      if (typeof window !== "undefined") {
+        localStorage.setItem("teslanav-follow-mode", newValue.toString());
       }
 
       // Track follow mode toggle
