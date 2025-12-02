@@ -961,8 +961,36 @@ export default function Home() {
         );
       })()}
 
-      {/* Top Left - Navigate Search + Destination Card (hidden - navigation in development) */}
-      <div className="absolute top-4 left-4 z-30 flex flex-col gap-3 hidden">
+      {/* Top Left - Support Banner */}
+      <div className="absolute top-4 left-4 z-30">
+        <button
+          onClick={() => {
+            setShowSettings(true);
+            posthog.capture("support_banner_clicked");
+          }}
+          className={`
+            flex items-center gap-2 px-4 py-2.5 rounded-xl backdrop-blur-xl
+            ${getButtonStyles(effectiveDarkMode)}
+            shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
+            group
+          `}
+        >
+          <span className="text-lg">❤️</span>
+          <span className="text-sm font-medium">Support this project</span>
+          <svg 
+            className={`w-4 h-4 opacity-50 group-hover:opacity-100 transition-opacity`} 
+            fill="none" 
+            viewBox="0 0 24 24" 
+            stroke="currentColor" 
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Navigate Search + Destination Card (hidden - navigation in development) */}
+      <div className="absolute top-16 left-4 z-30 flex flex-col gap-3 hidden">
         <NavigateSearch
           isDarkMode={effectiveDarkMode}
           onSelectDestination={handleSelectDestination}
