@@ -18,6 +18,8 @@ interface SettingsModalProps {
   onToggleSatellite: (value: boolean) => void;
   showAvatarPulse: boolean;
   onToggleAvatarPulse: (value: boolean) => void;
+  showSupportBanner: boolean;
+  onToggleSupportBanner: (value: boolean) => void;
   // Police alert settings
   policeAlertDistance: number;
   onPoliceAlertDistanceChange: (value: number) => void;
@@ -39,6 +41,8 @@ export function SettingsModal({
   onToggleSatellite,
   showAvatarPulse,
   onToggleAvatarPulse,
+  showSupportBanner,
+  onToggleSupportBanner,
   policeAlertDistance,
   onPoliceAlertDistanceChange,
   policeAlertSound,
@@ -397,6 +401,32 @@ export function SettingsModal({
                       // Track avatar pulse toggle
                       posthog.capture("avatar_pulse_toggled", {
                         pulse_enabled: value,
+                      });
+                    }}
+                    isDarkMode={isDarkMode}
+                  />
+                </div>
+
+                {/* Support Banner Toggle */}
+                <div className={`
+                  flex items-center justify-between p-5 rounded-xl
+                  ${isDarkMode ? "bg-white/5" : "bg-black/5"}
+                `}>
+                  <div className="flex items-center gap-4">
+                    <span className="text-3xl">❤️</span>
+                    <div>
+                      <div className="text-lg font-medium">Support Banner</div>
+                      <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                        Show &quot;Support this project&quot; in top left
+                      </div>
+                    </div>
+                  </div>
+                  <Toggle
+                    enabled={showSupportBanner}
+                    onToggle={(value) => {
+                      onToggleSupportBanner(value);
+                      posthog.capture("support_banner_toggled", {
+                        banner_enabled: value,
                       });
                     }}
                     isDarkMode={isDarkMode}

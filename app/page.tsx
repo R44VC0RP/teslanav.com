@@ -91,6 +91,13 @@ export default function Home() {
     return false;
   });
   const [showAvatarPulse, setShowAvatarPulse] = useState(true);
+  const [showSupportBanner, setShowSupportBanner] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("teslanav-support-banner");
+      return saved !== null ? saved === "true" : true; // Default to showing the banner
+    }
+    return true;
+  });
   const mapRef = useRef<MapRef>(null);
 
   const [destination, setDestination] = useState<{ lng: number; lat: number; name: string } | null>(null);
@@ -528,6 +535,14 @@ export default function Home() {
     }
   }, []);
 
+  // Save support banner preference to localStorage
+  const handleToggleSupportBanner = useCallback((value: boolean) => {
+    setShowSupportBanner(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("teslanav-support-banner", value.toString());
+    }
+  }, []);
+
   // Calculate bearing between two points
   const calculateBearing = useCallback((lat1: number, lng1: number, lat2: number, lng2: number): number => {
     const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -962,32 +977,34 @@ export default function Home() {
       })()}
 
       {/* Top Left - Support Banner */}
-      <div className="absolute top-4 left-4 z-30">
-        <button
-          onClick={() => {
-            setShowSettings(true);
-            posthog.capture("support_banner_clicked");
-          }}
-          className={`
-            flex items-center gap-2 px-4 py-2.5 rounded-xl backdrop-blur-xl
-            ${getButtonStyles(effectiveDarkMode)}
-            shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
-            group
-          `}
-        >
-          <span className="text-lg">❤️</span>
-          <span className="text-sm font-medium">Support this project</span>
-          <svg 
-            className={`w-4 h-4 opacity-50 group-hover:opacity-100 transition-opacity`} 
-            fill="none" 
-            viewBox="0 0 24 24" 
-            stroke="currentColor" 
-            strokeWidth={2}
+      {showSupportBanner && (
+        <div className="absolute top-4 left-4 z-30">
+          <button
+            onClick={() => {
+              setShowSettings(true);
+              posthog.capture("support_banner_clicked");
+            }}
+            className={`
+              flex items-center gap-2 px-4 py-2.5 rounded-xl backdrop-blur-xl
+              ${getButtonStyles(effectiveDarkMode)}
+              shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95
+              group
+            `}
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-      </div>
+            <span className="text-lg">❤️</span>
+            <span className="text-sm font-medium">Support this project</span>
+            <svg 
+              className={`w-4 h-4 opacity-50 group-hover:opacity-100 transition-opacity`} 
+              fill="none" 
+              viewBox="0 0 24 24" 
+              stroke="currentColor" 
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Navigate Search + Destination Card (hidden - navigation in development) */}
       <div className="absolute top-16 left-4 z-30 flex flex-col gap-3 hidden">
@@ -1507,6 +1524,8 @@ export default function Home() {
         onToggleSatellite={handleToggleSatellite}
         showAvatarPulse={showAvatarPulse}
         onToggleAvatarPulse={setShowAvatarPulse}
+        showSupportBanner={showSupportBanner}
+        onToggleSupportBanner={handleToggleSupportBanner}
         policeAlertDistance={policeAlertDistance}
         onPoliceAlertDistanceChange={handlePoliceAlertDistanceChange}
         policeAlertSound={policeAlertSound}
