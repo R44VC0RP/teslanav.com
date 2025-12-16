@@ -42,6 +42,8 @@ interface MapProps {
   debugTileBounds?: Array<{ bounds: MapBounds; ageMs: number }>;
   // Real-time other users
   otherUsers?: UserPosition[];
+  // 3D terrain mode
+  use3DMode?: boolean;
 }
 
 export interface MapRef {
@@ -246,6 +248,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     alertRadiusMeters = 500,
     debugTileBounds,
     otherUsers = [],
+    use3DMode = false,
   },
   ref
 ) {
@@ -270,6 +273,12 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   
   // Track showTraffic prop for use in callbacks (closure-safe)
   const showTrafficPropRef = useRef(showTraffic);
+  
+  // Track 3D mode prop for use in callbacks
+  const use3DModePropRef = useRef(use3DMode);
+  
+  // Track isDarkMode for use in callbacks
+  const isDarkModeRef = useRef(isDarkMode);
   
   // Long press handling
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -422,12 +431,15 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     if (userMarkerElRef.current) {
       const avatarEl = userMarkerElRef.current.querySelector('.user-avatar') as HTMLElement;
       if (avatarEl) {
+        // In 3D mode, tilt the avatar forward to match map perspective (60deg pitch = ~45deg tilt looks good)
+        const tilt3D = use3DModeRef.current ? 'rotateX(45deg)' : '';
+        
         if (isFollowMode.current) {
           // In follow mode: avatar points UP, map rotates
-          avatarEl.style.transform = `translate(-50%, -50%) rotate(0deg)`;
+          avatarEl.style.transform = `translate(-50%, -50%) ${tilt3D} rotate(0deg)`;
         } else {
           // In north-up mode: avatar rotates to show heading
-          avatarEl.style.transform = `translate(-50%, -50%) rotate(${currentHeadingRef.current}deg)`;
+          avatarEl.style.transform = `translate(-50%, -50%) ${tilt3D} rotate(${currentHeadingRef.current}deg)`;
         }
       }
     }
@@ -572,8 +584,9 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       center,
       zoom,
       attributionControl: false,
-      pitchWithRotate: false,
+      pitchWithRotate: use3DMode, // Allow pitch control in 3D mode
       dragRotate: false, // Start with north up
+      pitch: use3DMode ? 60 : 0, // Set initial pitch for 3D mode
     });
 
     map.current.on("load", () => {
@@ -644,6 +657,30 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       
       // Also try after a short delay as fallback (handles edge cases with ref timing)
       setTimeout(addInitialTraffic, 200);
+
+      // Add 3D terrain if enabled
+      const addInitial3DTerrain = () => {
+        if (!map.current || !use3DModePropRef.current) return;
+        try {
+          if (!map.current.getSource("mapbox-dem")) {
+            map.current.addSource("mapbox-dem", {
+              type: "raster-dem",
+              url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+              tileSize: 512,
+              maxzoom: 14,
+            });
+          }
+          map.current.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
+        } catch (e) {
+          console.log("Error adding 3D terrain:", e);
+        }
+      };
+      
+      // Try immediately
+      addInitial3DTerrain();
+      
+      // Also try after a short delay as fallback
+      setTimeout(addInitial3DTerrain, 200);
     });
 
     // Detect when user starts interacting (pan/drag)
@@ -897,6 +934,18 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     showTrafficPropRef.current = showTraffic;
   }, [showTraffic]);
 
+  // Track use3DMode in a ref so style.load handler always has current value
+  const use3DModeRef = useRef(use3DMode);
+  useEffect(() => {
+    use3DModeRef.current = use3DMode;
+    use3DModePropRef.current = use3DMode;
+  }, [use3DMode]);
+
+  // Track isDarkMode in ref for use in callbacks
+  useEffect(() => {
+    isDarkModeRef.current = isDarkMode;
+  }, [isDarkMode]);
+
   // Set up persistent style.load listener for traffic layer (runs once when map loads)
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
@@ -1037,6 +1086,167 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     }
   }, [showTraffic, mapLoaded]);
 
+  // Toggle 3D terrain on/off based on use3DMode prop
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    const mapInstance = map.current;
+
+    const add3DTerrain = () => {
+      if (!mapInstance.isStyleLoaded()) return;
+      
+      try {
+        // Add terrain elevation
+        if (!mapInstance.getSource("mapbox-dem")) {
+          mapInstance.addSource("mapbox-dem", {
+            type: "raster-dem",
+            url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+            tileSize: 512,
+            maxzoom: 14,
+          });
+        }
+        mapInstance.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
+        
+        // Add 3D buildings layer
+        if (!mapInstance.getLayer("3d-buildings")) {
+          // Find the first symbol layer to insert buildings below labels
+          const layers = mapInstance.getStyle().layers;
+          let labelLayerId: string | undefined;
+          for (const layer of layers) {
+            if (layer.type === "symbol" && layer.layout?.["text-field"]) {
+              labelLayerId = layer.id;
+              break;
+            }
+          }
+          
+          mapInstance.addLayer(
+            {
+              id: "3d-buildings",
+              source: "composite",
+              "source-layer": "building",
+              filter: ["==", "extrude", "true"],
+              type: "fill-extrusion",
+              minzoom: 15,
+              paint: {
+                "fill-extrusion-color": isDarkMode ? "#242424" : "#ddd",
+                "fill-extrusion-height": ["get", "height"],
+                "fill-extrusion-base": ["get", "min_height"],
+                "fill-extrusion-opacity": 0.8,
+              },
+            },
+            labelLayerId
+          );
+        }
+        
+        // Set pitch for 3D view
+        mapInstance.easeTo({ pitch: 60, duration: 500 });
+      } catch (e) {
+        console.log("Error adding 3D terrain:", e);
+      }
+    };
+
+    const remove3DTerrain = () => {
+      try {
+        // Remove terrain first
+        mapInstance.setTerrain(null);
+        // Remove 3D buildings layer
+        if (mapInstance.getLayer("3d-buildings")) {
+          mapInstance.removeLayer("3d-buildings");
+        }
+        // Reset pitch to flat
+        mapInstance.easeTo({ pitch: 0, duration: 500 });
+      } catch (e) {
+        console.log("Error removing 3D terrain:", e);
+      }
+    };
+
+    if (use3DMode) {
+      if (mapInstance.isStyleLoaded()) {
+        add3DTerrain();
+      }
+    } else {
+      if (mapInstance.isStyleLoaded()) {
+        remove3DTerrain();
+      }
+    }
+  }, [use3DMode, mapLoaded]);
+
+  // Set up persistent style.load listener for 3D terrain (runs when style changes)
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    const mapInstance = map.current;
+
+    const add3DTerrainLayer = () => {
+      if (!mapInstance.isStyleLoaded()) return;
+      
+      try {
+        // Add terrain
+        if (!mapInstance.getSource("mapbox-dem")) {
+          mapInstance.addSource("mapbox-dem", {
+            type: "raster-dem",
+            url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+            tileSize: 512,
+            maxzoom: 14,
+          });
+        }
+        mapInstance.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
+        
+        // Add 3D buildings
+        if (!mapInstance.getLayer("3d-buildings")) {
+          const layers = mapInstance.getStyle().layers;
+          let labelLayerId: string | undefined;
+          for (const layer of layers) {
+            if (layer.type === "symbol" && layer.layout?.["text-field"]) {
+              labelLayerId = layer.id;
+              break;
+            }
+          }
+          
+          mapInstance.addLayer(
+            {
+              id: "3d-buildings",
+              source: "composite",
+              "source-layer": "building",
+              filter: ["==", "extrude", "true"],
+              type: "fill-extrusion",
+              minzoom: 15,
+              paint: {
+                "fill-extrusion-color": isDarkModeRef.current ? "#242424" : "#ddd",
+                "fill-extrusion-height": ["get", "height"],
+                "fill-extrusion-base": ["get", "min_height"],
+                "fill-extrusion-opacity": 0.8,
+              },
+            },
+            labelLayerId
+          );
+        }
+      } catch (e) {
+        console.log("Error adding 3D terrain layer:", e);
+      }
+    };
+
+    // Handler for when style loads/changes - re-add terrain if enabled
+    const handleStyleLoad = () => {
+      if (use3DModeRef.current) {
+        // Small delay to ensure style is fully ready
+        setTimeout(() => add3DTerrainLayer(), 100);
+      }
+    };
+
+    // Listen for all style changes
+    mapInstance.on("style.load", handleStyleLoad);
+
+    // IMPORTANT: Also add terrain now if style is already loaded and 3D mode is enabled
+    if (use3DModeRef.current && mapInstance.isStyleLoaded()) {
+      add3DTerrainLayer();
+    }
+
+    return () => {
+      mapInstance.off("style.load", handleStyleLoad);
+    };
+  }, [mapLoaded]);
+
   // Create/update user location marker
   useEffect(() => {
     if (!map.current || !mapLoaded || !userLocation) return;
@@ -1049,10 +1259,14 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       el.className = "user-marker";
       userMarkerElRef.current = el;
       
+      // Initial 3D tilt if in 3D mode
+      const initialTilt = use3DMode ? 'rotateX(45deg)' : '';
+      
       // Create simple marker - just the avatar that rotates
+      // Add perspective to container for 3D transforms and transform-style for nested 3D
       el.innerHTML = `
-        <div class="user-avatar-container">
-          <div class="user-avatar" style="transform: translate(-50%, -50%) rotate(${initialHeading}deg);">
+        <div class="user-avatar-container" style="perspective: 100px; transform-style: preserve-3d;">
+          <div class="user-avatar" style="transform: translate(-50%, -50%) ${initialTilt} rotate(${initialHeading}deg); transform-style: preserve-3d;">
             <img src="${avatarSrc}" alt="You" />
           </div>
           ${showAvatarPulse ? '<div class="user-avatar-pulse"></div>' : ''}
@@ -1101,6 +1315,21 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       existingPulse.remove();
     }
   }, [showAvatarPulse]);
+
+  // Update avatar 3D tilt when 3D mode changes
+  useEffect(() => {
+    if (!userMarkerElRef.current) return;
+    
+    const container = userMarkerElRef.current.querySelector('.user-avatar-container') as HTMLElement;
+    if (container) {
+      // Add perspective for 3D transforms
+      container.style.perspective = use3DMode ? '100px' : 'none';
+      container.style.transformStyle = 'preserve-3d';
+    }
+    
+    // The actual tilt transform is applied in the animation loop (animatePosition)
+    // which reads from use3DModeRef, so it will update automatically
+  }, [use3DMode]);
 
   // Alert radius circle (dev mode)
   useEffect(() => {

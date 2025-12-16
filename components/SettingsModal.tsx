@@ -25,6 +25,9 @@ interface SettingsModalProps {
   onPoliceAlertDistanceChange: (value: number) => void;
   policeAlertSound: boolean;
   onTogglePoliceAlertSound: (value: boolean) => void;
+  // 3D mode settings
+  use3DMode: boolean;
+  onToggle3DMode: (value: boolean) => void;
 }
 
 export function SettingsModal({
@@ -47,6 +50,8 @@ export function SettingsModal({
   onPoliceAlertDistanceChange,
   policeAlertSound,
   onTogglePoliceAlertSound,
+  use3DMode,
+  onToggle3DMode,
 }: SettingsModalProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
@@ -431,6 +436,49 @@ export function SettingsModal({
                     }}
                     isDarkMode={isDarkMode}
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Experimental Section */}
+            <div>
+              <h3 className={`text-base font-medium uppercase tracking-wider mb-4 ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                Experimental
+              </h3>
+              
+              <div className="space-y-4">
+                {/* 3D Mode Toggle */}
+                <div className={`
+                  p-5 rounded-xl
+                  ${isDarkMode ? "bg-white/5" : "bg-black/5"}
+                `}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <span className="text-3xl">🏔️</span>
+                      <div>
+                        <div className="text-lg font-medium">3D Map View</div>
+                        <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                          Show terrain elevation with tilted camera
+                        </div>
+                      </div>
+                    </div>
+                    <Toggle
+                      enabled={use3DMode}
+                      onToggle={(value) => {
+                        onToggle3DMode(value);
+                        posthog.capture("3d_mode_toggled", {
+                          mode_enabled: value,
+                        });
+                      }}
+                      isDarkMode={isDarkMode}
+                    />
+                  </div>
+                  <div className={`
+                    mt-4 p-3 rounded-lg text-sm
+                    ${isDarkMode ? "bg-amber-500/10 text-amber-200" : "bg-amber-50 text-amber-700"}
+                  `}>
+                    <span className="font-medium">Note:</span> 3D mode may not work on older Tesla browsers. Enabling this will also activate follow mode for the best experience.
+                  </div>
                 </div>
               </div>
             </div>

@@ -90,6 +90,13 @@ export default function Home() {
     }
     return false;
   });
+  const [use3DMode, setUse3DMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("teslanav-3d-mode");
+      return saved === "true";
+    }
+    return false;
+  });
   const [showAvatarPulse, setShowAvatarPulse] = useState(true);
   const [showSupportBanner, setShowSupportBanner] = useState(() => {
     if (typeof window !== "undefined") {
@@ -509,6 +516,24 @@ export default function Home() {
     }
   }, []);
 
+  // Save 3D mode preference to localStorage and auto-enable follow mode
+  const handleToggle3DMode = useCallback((value: boolean) => {
+    setUse3DMode(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("teslanav-3d-mode", value.toString());
+    }
+    // Auto-enable follow mode when 3D is enabled for the best experience
+    if (value && !followMode) {
+      setFollowMode(true);
+      if (mapRef.current) {
+        mapRef.current.setFollowMode(true);
+      }
+      if (typeof window !== "undefined") {
+        localStorage.setItem("teslanav-follow-mode", "true");
+      }
+    }
+  }, [followMode]);
+
   // Save traffic preference to localStorage
   const handleToggleTraffic = useCallback((value: boolean) => {
     setShowTraffic(value);
@@ -893,6 +918,7 @@ export default function Home() {
         alertRadiusMeters={policeAlertDistance}
         debugTileBounds={isDevMode ? cachedTileBounds : undefined}
         otherUsers={otherUsers}
+        use3DMode={use3DMode}
       />
 
       {/* Context Menu - Shows on long press */}
@@ -1259,7 +1285,7 @@ export default function Home() {
                 {placeLoading ? "..." : (placeName || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)}
               </span>
               <span className={`text-[10px] ${effectiveDarkMode ? "text-gray-100" : "text-gray-400"}`}>
-                v0.2.0
+                v0.3.0
               </span>
             </div>
           </div>
@@ -1530,6 +1556,8 @@ export default function Home() {
         onPoliceAlertDistanceChange={handlePoliceAlertDistanceChange}
         policeAlertSound={policeAlertSound}
         onTogglePoliceAlertSound={handleTogglePoliceAlertSound}
+        use3DMode={use3DMode}
+        onToggle3DMode={handleToggle3DMode}
       />
 
       {/* Feedback Modal */}
