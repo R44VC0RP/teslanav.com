@@ -17,6 +17,8 @@ export const CACHE_KEYS = {
   API_USAGE: "api:usage:", // Format: api:usage:{api_name}:{YYYY-MM}
   API_USAGE_DAILY: "api:usage:daily:", // Format: api:usage:daily:{api_name}:{YYYY-MM-DD}
   ALERT_SENT: "api:alert:", // Format: api:alert:{api_name}:{threshold}:{YYYY-MM}
+  // Tile cache metadata (stores Vercel Blob URLs)
+  TILE_CACHE: "tile:cache:", // Format: tile:cache:{encoded_url}
 } as const;
 
 // Cache TTLs in seconds
@@ -27,6 +29,7 @@ export const CACHE_TTL = {
   REVERSE_GEOCODE: 86400, // 24 hours for reverse geocode (locations don't change)
   API_USAGE: 86400 * 35, // 35 days for monthly usage tracking
   API_USAGE_DAILY: 86400 * 7, // 7 days for daily usage
+  TILE_CACHE: 86400 * 15, // 15 days for tile cache
 } as const;
 
 // Global rate limit settings

@@ -587,6 +587,20 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       pitchWithRotate: use3DMode, // Allow pitch control in 3D mode
       dragRotate: false, // Start with north up
       pitch: use3DMode ? 60 : 0, // Set initial pitch for 3D mode
+      // Route tile requests through our caching proxy to reduce Mapbox costs
+      transformRequest: (url, resourceType) => {
+        // Only proxy tile requests, not style/sprite/glyph JSON files
+        if (
+          resourceType === "Tile" &&
+          (url.includes("api.mapbox.com") || url.includes("tiles.mapbox.com"))
+        ) {
+          return {
+            url: `/api/tiles?url=${encodeURIComponent(url)}`,
+          };
+        }
+        // Let other requests pass through normally
+        return { url };
+      },
     });
 
     map.current.on("load", () => {
