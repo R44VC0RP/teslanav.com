@@ -10,7 +10,6 @@ import { RouteSelector } from "@/components/RouteSelector";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
 import { useSpeedCameras } from "@/hooks/useSpeedCameras";
-import { useReverseGeocode } from "@/hooks/useReverseGeocode";
 import type { MapBounds } from "@/types/waze";
 import type { RouteData, RoutesResponse } from "@/types/route";
 import Image from "next/image";
@@ -126,9 +125,9 @@ export default function Home() {
   const [policeAlertDistance, setPoliceAlertDistance] = useState(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("teslanav-police-distance");
-      return saved !== null ? parseInt(saved, 10) : 500;
+      return saved !== null ? parseInt(saved, 10) : 805;
     }
-    return 500; // meters, 0 = off
+    return 805; // meters (~0.5 miles), 0 = off
   });
   const [policeAlertSound, setPoliceAlertSound] = useState(() => {
     if (typeof window !== "undefined") {
@@ -164,7 +163,6 @@ export default function Home() {
   const speed = isSimulating ? 25 : realSpeed;
   const { alerts, loading: alertsLoading, cachedTileBounds } = useWazeAlerts({ bounds });
   const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
-  const { placeName, loading: placeLoading } = useReverseGeocode(latitude, longitude);
 
   // Track last route origin to detect significant movement
   const lastRouteOriginRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -885,11 +883,47 @@ export default function Home() {
   const compassCenterFill = effectiveDarkMode ? "#1a1a1a" : "white";
   const compassCenterStroke = effectiveDarkMode ? "#9ca3af" : "#374151";
 
+  // Show full-screen loading until we have location
+  if (!latitude || !longitude) {
+    return (
+      <main className="relative w-full h-full bg-[#0a0a0a] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-6">
+          {/* TeslaNav Logo/Title */}
+          <div className="flex items-center gap-3">
+            <Image
+              src="/maps-avatar.jpg"
+              alt="TeslaNav"
+              width={48}
+              height={48}
+              className="rounded-lg"
+            />
+            <div className="flex flex-col">
+              <span className="text-2xl font-bold text-white tracking-wide">TeslaNav</span>
+              <span className="text-xs text-gray-500">v0.3.0</span>
+            </div>
+          </div>
+          
+          {/* Loading indicator */}
+          <div className="flex flex-col items-center gap-3">
+            <div className="relative">
+              <div className="w-12 h-12 border-4 border-white/10 border-t-blue-500 rounded-full animate-spin" />
+              <div className="absolute inset-0 w-12 h-12 border-4 border-transparent border-t-blue-400/30 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }} />
+            </div>
+            <span className="text-gray-400 text-sm font-medium">
+              {geoError ? geoError : "Finding your location..."}
+            </span>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="relative w-full h-full">
       {/* Map */}
       <Map
         ref={mapRef}
+        center={[longitude, latitude]}
         zoom={14}
         isDarkMode={effectiveDarkMode}
         alerts={filteredAlerts}
@@ -900,7 +934,7 @@ export default function Home() {
         pinLocation={contextMenu ? { lng: contextMenu.lng, lat: contextMenu.lat } : previewLocation ? { lng: previewLocation.lng, lat: previewLocation.lat } : null}
         routes={routes}
         selectedRouteIndex={selectedRouteIndex}
-        userLocation={latitude && longitude ? { latitude, longitude, heading, effectiveHeading, speed } : null}
+        userLocation={{ latitude, longitude, heading, effectiveHeading, speed }}
         followMode={followMode}
         showTraffic={showTraffic}
         useSatellite={useSatellite}
@@ -1194,14 +1228,23 @@ export default function Home() {
         </button>
 
         {/* Alert Summary - Stacked vertically, same width as compass */}
-        {filteredAlerts.length > 0 && (
+        {(filteredAlerts.length > 0 || alertsLoading) && (
           <div
             className={`
               w-[72px] flex flex-col items-center gap-1.5 py-3 rounded-xl backdrop-blur-xl
               ${getContainerStyles(effectiveDarkMode)}
-              shadow-lg border
+              shadow-lg border relative
             `}
           >
+            {/* Waze loading indicator - shows when fetching new data */}
+            {alertsLoading && (
+              <div className="absolute -top-2 -right-2 z-10">
+                <div className="relative">
+                  <WazeIcon className="w-6 h-6 text-cyan-400 animate-pulse" />
+                  <div className="absolute inset-0 w-6 h-6 rounded-full bg-cyan-400/30 animate-ping" />
+                </div>
+              </div>
+            )}
             {alertCounts.police > 0 && (
               <span className="flex items-center gap-1.5 text-base">
                 <ShieldExclamationIcon className="w-5 h-5 text-blue-500" />
@@ -1226,8 +1269,11 @@ export default function Home() {
                 <span className="font-semibold">{alertCounts.closures}</span>
               </span>
             )}
-            {alertsLoading && (
-              <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
+            {/* Show placeholder when loading with no alerts yet */}
+            {alertsLoading && filteredAlerts.length === 0 && (
+              <span className={`text-xs ${effectiveDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                Loading...
+              </span>
             )}
           </div>
         )}
@@ -1250,13 +1296,10 @@ export default function Home() {
               height={36}
             />
             <div className="flex flex-col">
-              <span className={`text-xs uppercase tracking-wider ${effectiveDarkMode ? "text-gray-400" : "text-gray-500"}`}>
-                Your Location
+              <span className="text-sm font-bold tracking-wide">
+                TeslaNav
               </span>
-              <span className="text-sm font-medium">
-                {placeLoading ? "..." : (placeName || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)}
-              </span>
-              <span className={`text-[10px] ${effectiveDarkMode ? "text-gray-100" : "text-gray-400"}`}>
+              <span className={`text-[10px] ${effectiveDarkMode ? "text-gray-400" : "text-gray-500"}`}>
                 v0.3.0
               </span>
             </div>
@@ -1438,33 +1481,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* Loading Overlay - pointer-events-none allows buttons to remain clickable */}
-      {geoLoading && !latitude && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm pointer-events-none" />
-          <div
-            className={`
-              relative px-8 py-5 rounded-2xl backdrop-blur-md pointer-events-none
-              ${effectiveDarkMode ? "bg-[#1a1a1a]/90 text-white border-white/10" : "bg-white/95 text-black border-black/5"}
-              shadow-2xl border
-            `}
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-6 h-6 border-2 border-current border-t-transparent rounded-full animate-spin" />
-              <span className="text-base font-medium">Finding your location...</span>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Error Toast */}
-      {geoError && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-          <div className="px-5 py-3 rounded-xl bg-red-500/95 text-white text-base font-medium shadow-lg">
-            {geoError}
-          </div>
-        </div>
-      )}
 
       {/* Police Alert - Full Screen Border Glow Effect */}
       {policeAlertToast?.show && (
@@ -1815,6 +1832,14 @@ function HelpIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
+function WazeIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2C6.48 2 2 6.48 2 12c0 1.54.36 3 1 4.31V20l3.13-1.57c1.57.72 3.33 1.07 5.15.95 4.84-.31 8.72-4.19 9.03-9.03.34-5.31-3.87-9.65-9.18-9.35h-.13zm-2 13c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm4 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm2-5H8c0-2.21 1.79-4 4-4s4 1.79 4 4z"/>
     </svg>
   );
 }

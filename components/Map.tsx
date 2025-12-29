@@ -610,6 +610,13 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       if (map.current && onBoundsChange) {
         const bounds = map.current.getBounds();
         if (bounds) {
+          // RQ: Log viewport coords for testing (remove later)
+          console.log("[Viewport Bounds]", {
+            north: bounds.getNorth(),
+            south: bounds.getSouth(),
+            east: bounds.getEast(),
+            west: bounds.getWest(),
+          });
           onBoundsChange({
             north: bounds.getNorth(),
             south: bounds.getSouth(),
@@ -750,6 +757,13 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       if (map.current && onBoundsChange) {
         const bounds = map.current.getBounds();
         if (bounds) {
+          // RQ: Log viewport coords for testing (remove later)
+          console.log("[Viewport Bounds]", {
+            north: bounds.getNorth(),
+            south: bounds.getSouth(),
+            east: bounds.getEast(),
+            west: bounds.getWest(),
+          });
           onBoundsChange({
             north: bounds.getNorth(),
             south: bounds.getSouth(),

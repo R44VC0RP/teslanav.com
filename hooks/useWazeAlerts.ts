@@ -63,7 +63,7 @@ export function useWazeAlerts({
   bounds,
   refreshInterval = 30000, // 30 seconds - safety-critical data needs frequent updates
   debounceMs = 250, // 250ms - snappy response, server caching handles the rest
-  bufferMultiplier = 2.5, // Fetch 2.5x the viewport size (allows panning/zooming without new requests)
+  bufferMultiplier = 4, // Fetch 4x the viewport size (~89 sq miles) - optimal based on Waze API testing
   cacheTTL = 60000, // 60 seconds - cached tiles are valid for this long
   maxRequestsPerMinute = 15, // Allow more requests for safety-critical updates
   minZoomLevel = 10, // Don't fetch when zoomed out past city level to avoid overloading servers

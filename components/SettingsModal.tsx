@@ -320,10 +320,10 @@ export function SettingsModal({
                   <div className="flex gap-2 flex-wrap">
                     {[
                       { value: 0, label: "Off" },
-                      { value: 500, label: "500m" },
-                      { value: 1000, label: "1 km" },
-                      { value: 1500, label: "1.5 km" },
-                      { value: 2000, label: "2 km" },
+                      { value: 402, label: "¼ mi" },
+                      { value: 805, label: "½ mi" },
+                      { value: 1609, label: "1 mi" },
+                      { value: 3219, label: "2 mi" },
                     ].map((option) => (
                       <button
                         key={option.value}
