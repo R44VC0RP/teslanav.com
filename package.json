@@ -11,7 +11,6 @@
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "@radix-ui/react-slot": "^1.2.4",
-    "@upstash/realtime": "^1.0.0",
     "@upstash/redis": "^1.35.7",
     "@vercel/blob": "^2.0.0",
     "class-variance-authority": "^0.7.1",

@@ -6,7 +6,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import type { WazeAlert, MapBounds } from "@/types/waze";
 import type { SpeedCamera } from "@/types/speedcamera";
 import type { RouteData } from "@/types/route";
-import type { UserPosition } from "@/lib/realtime";
+
 import posthog from "posthog-js";
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -40,8 +40,6 @@ interface MapProps {
   alertRadiusMeters?: number;
   // Dev mode - show cached Waze tile bounds
   debugTileBounds?: Array<{ bounds: MapBounds; ageMs: number }>;
-  // Real-time other users
-  otherUsers?: UserPosition[];
   // 3D terrain mode
   use3DMode?: boolean;
 }
@@ -247,7 +245,6 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     showAlertRadius = false,
     alertRadiusMeters = 500,
     debugTileBounds,
-    otherUsers = [],
     use3DMode = false,
   },
   ref
@@ -260,7 +257,6 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const userMarkerElRef = useRef<HTMLDivElement | null>(null);
   const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
-  const otherUserMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
   const [mapLoaded, setMapLoaded] = useState(false);
   const [nightOverlayOpacity, setNightOverlayOpacity] = useState(0);
   const initialCenterSet = useRef(false);
@@ -1941,77 +1937,6 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       }
     }
   }, [speedCameras, mapLoaded, isDarkMode]);
-
-  // Render other users as car markers
-  useEffect(() => {
-    if (!map.current || !mapLoaded) return;
-
-    const currentMarkers = otherUserMarkersRef.current;
-    const userIds = new Set(otherUsers.map((u) => u.id));
-
-    // Remove markers for users who left
-    for (const [id, marker] of currentMarkers) {
-      if (!userIds.has(id)) {
-        marker.remove();
-        currentMarkers.delete(id);
-      }
-    }
-
-    // Add or update markers for each user
-    otherUsers.forEach((user) => {
-      const existingMarker = currentMarkers.get(user.id);
-      const carIconPath = `/cars/${user.c}.png`;
-      const rotation = user.h ?? 0;
-
-      if (existingMarker) {
-        // Update position - setLngLat positions the marker at geographic coordinates
-        existingMarker.setLngLat([user.lng, user.lat]);
-        // Update rotation
-        const el = existingMarker.getElement();
-        const carEl = el.querySelector(".other-user-car") as HTMLElement;
-        if (carEl) {
-          carEl.style.transform = `rotate(${rotation}deg)`;
-        }
-      } else {
-        // Create new marker - structure similar to user marker for consistent behavior
-        const el = document.createElement("div");
-        el.className = "other-user-marker";
-        
-        // Use a container-based approach like the user marker
-        // This ensures the marker is properly geo-positioned and doesn't scale with zoom
-        el.innerHTML = `
-          <div class="other-user-container">
-            <div class="other-user-car" style="transform: rotate(${rotation}deg);">
-            <img 
-              src="${carIconPath}" 
-              alt="Other driver" 
-              onerror="this.src='/cars/blue.png'"
-            />
-          </div>
-            <div class="other-user-shadow"></div>
-          </div>
-        `;
-
-        // Create marker without explicit anchor - let CSS handle centering
-        // This matches the user marker pattern which works correctly
-        const marker = new mapboxgl.Marker({ element: el })
-          .setLngLat([user.lng, user.lat])
-          .addTo(map.current!);
-
-        currentMarkers.set(user.id, marker);
-      }
-    });
-  }, [otherUsers, mapLoaded]);
-
-  // Cleanup other user markers on unmount
-  useEffect(() => {
-    return () => {
-      for (const marker of otherUserMarkersRef.current.values()) {
-        marker.remove();
-      }
-      otherUserMarkersRef.current.clear();
-    };
-  }, []);
 
   // Pin marker for long-press location (using Waze origin marker style)
   useEffect(() => {
