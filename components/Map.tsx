@@ -590,9 +590,9 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
           resourceType === "Tile" &&
           (url.includes("api.mapbox.com") || url.includes("tiles.mapbox.com"))
         ) {
-          return {
-            url: `/api/tiles?url=${encodeURIComponent(url)}`,
-          };
+          // Must use absolute URL for Mapbox GL
+          const proxyUrl = `${window.location.origin}/api/tiles?url=${encodeURIComponent(url)}`;
+          return { url: proxyUrl };
         }
         // Let other requests pass through normally
         return { url };
