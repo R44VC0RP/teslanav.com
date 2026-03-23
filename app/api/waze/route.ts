@@ -28,8 +28,8 @@ function getClientIP(request: NextRequest): string {
     return clientIp;
   }
 
-  // Fallback to connection IP (Next.js specific)
-  return request.ip || "unknown";
+  // Fallback if headers not available
+  return "unknown";
 }
 
 // Helper: Generate cache key using hash (prevents key injection)
