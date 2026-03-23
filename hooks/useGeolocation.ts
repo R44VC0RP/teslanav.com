@@ -194,6 +194,7 @@ export function useGeolocation(enableHighAccuracy = true) {
         ...prev,
         error: "Geolocation is not supported",
         loading: false,
+        permissionDenied: false,
       }));
       return;
     }
@@ -206,6 +207,7 @@ export function useGeolocation(enableHighAccuracy = true) {
         ...prev,
         error: "Geolocation requires HTTPS. Please access this site over HTTPS.",
         loading: false,
+        permissionDenied: false,
       }));
       return;
     }
