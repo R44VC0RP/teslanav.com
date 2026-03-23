@@ -157,6 +157,7 @@ export function useGeolocation(enableHighAccuracy = true) {
       loading: false,
       calculatedHeading,
       timestamp,
+      permissionDenied: false,
     });
   }, []);
 
