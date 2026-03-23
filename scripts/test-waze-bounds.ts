@@ -1,12 +1,10 @@
 /**
- * Test script to find Waze API bounds limits
- * 
- * This script progressively doubles the viewport size to see:
- * 1. If there's an upper limit on bounds size
- * 2. How many alerts are returned at each size
- * 3. If larger requests are rate-limited differently
- * 
+ * Test script for OpenWeb Ninja Waze API integration
+ *
+ * Tests the local API endpoint to verify Waze alerts are being returned correctly.
+ *
  * Run with: bun run scripts/test-waze-bounds.ts
+ * Note: Make sure the app is running locally (npm run dev)
  */
 
 // Starting viewport (San Francisco area)
@@ -45,7 +43,7 @@ function expandBounds(bounds: typeof BASE_BOUNDS, multiplier: number): typeof BA
   };
 }
 
-// Fetch alerts from Waze API
+// Fetch alerts from local API endpoint (which uses OpenWeb Ninja)
 async function fetchWazeAlerts(bounds: typeof BASE_BOUNDS): Promise<{
   success: boolean;
   alertCount: number;
@@ -54,21 +52,16 @@ async function fetchWazeAlerts(bounds: typeof BASE_BOUNDS): Promise<{
   rawResponse?: any;
 }> {
   const { north, south, east, west } = bounds;
-  
-  // Auto-detect region based on longitude (same logic as route.ts)
-  const centerLon = (east + west) / 2;
-  const env = centerLon >= -170 && centerLon <= -30 ? "na" : "row";
-  
-  // Waze API URL (same as used in the app)
-  const url = `https://www.waze.com/live-map/api/georss?top=${north}&bottom=${south}&left=${west}&right=${east}&env=${env}&types=alerts`;
-  
+
+  // Call local API endpoint (make sure app is running on localhost:3000)
+  const url = `http://localhost:3000/api/waze?left=${west}&right=${east}&bottom=${south}&top=${north}`;
+
   const startTime = Date.now();
-  
+
   try {
     const response = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Referer": "https://www.waze.com/live-map",
+        "Content-Type": "application/json",
       },
     });
     
