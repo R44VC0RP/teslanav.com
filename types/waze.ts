@@ -19,8 +19,6 @@ export interface WazeAlert {
 
 export interface WazeResponse {
   alerts: WazeAlert[];
-  startTime: string;
-  endTime: string;
 }
 
 export interface MapBounds {
