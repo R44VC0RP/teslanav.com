@@ -10,7 +10,7 @@ function isShutdownEnabled(): boolean {
   return !disabledValues.has(shutdownValue.trim().toLowerCase());
 }
 
-export function proxy(request: NextRequest): NextResponse {
+export default function middleware(request: NextRequest): NextResponse {
   if (!isShutdownEnabled()) {
     return NextResponse.next();
   }
