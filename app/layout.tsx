@@ -1,14 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { Geist } from "next/font/google";
 import Script from "next/script";
 import { PROJECT_SHUTDOWN_ENABLED } from "@/lib/shutdown";
 import { Providers } from "./providers";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
 
 const siteUrl = "https://teslanav.com";
 const siteName = "TeslaNav";
@@ -240,8 +234,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const bodyClassName = PROJECT_SHUTDOWN_ENABLED
-    ? `${geistSans.variable} antialiased bg-neutral-950 text-white`
-    : `${geistSans.variable} antialiased overflow-hidden`;
+    ? `antialiased bg-neutral-950 text-white`
+    : `antialiased overflow-hidden`;
 
   const bodyStyle = PROJECT_SHUTDOWN_ENABLED
     ? {

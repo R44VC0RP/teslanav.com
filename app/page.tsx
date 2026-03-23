@@ -162,7 +162,7 @@ function LiveHome() {
   const simulationIndexRef = useRef(0);
   const simulationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { latitude: realLatitude, longitude: realLongitude, heading, effectiveHeading: realEffectiveHeading, speed: realSpeed, loading: geoLoading, error: geoError } = useGeolocation();
+  const { latitude: realLatitude, longitude: realLongitude, heading, effectiveHeading: realEffectiveHeading, speed: realSpeed, loading: geoLoading, error: geoError, requestPermission } = useGeolocation();
   
   // Use simulated position if simulating, otherwise use real position
   const latitude = isSimulating && simulatedPosition ? simulatedPosition.lat : realLatitude;
@@ -921,6 +921,14 @@ function LiveHome() {
             <span className="text-gray-400 text-sm font-medium">
               {geoError ? geoError : "Finding your location..."}
             </span>
+            {geoError && (
+              <button
+                onClick={requestPermission}
+                className="mt-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Try Again
+              </button>
+            )}
           </div>
         </div>
       </main>
