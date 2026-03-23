@@ -246,6 +246,20 @@ export function useGeolocation(enableHighAccuracy = true) {
         ...prev,
         error: "Geolocation is not supported",
         loading: false,
+        permissionDenied: false,
+      }));
+      return;
+    }
+
+    // Check if page is HTTPS or localhost (geolocation requires secure context)
+    const isSecureContext = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    if (!isSecureContext) {
+      setState((prev) => ({
+        ...prev,
+        error: "Geolocation requires HTTPS. Please access this site over HTTPS.",
+        loading: false,
+        permissionDenied: false,
       }));
       return;
     }
