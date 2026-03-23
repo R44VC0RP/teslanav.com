@@ -14,7 +14,7 @@ export interface WazeAlert {
   nThumbsUp?: number;
   pubMillis: number;
   reportBy?: string;
-  provider?: string;
+  provider?: string; // "waze" | "openweb_ninja"
 }
 
 export interface WazeResponse {

@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { redis, CACHE_KEYS, CACHE_TTL, RATE_LIMITS } from "@/lib/redis";
+import {
+  convertBoundsToOpenWebNinja,
+  mapOpenWebNinjaResponse,
+  type OpenWebNinjaResponse,
+} from "@/lib/openweb-ninja";
 
 // Generate a cache key with tolerance for similar bounds (~1km precision)
-function getCacheKey(left: string, right: string, bottom: string, top: string): string {
+function getCacheKey(
+  left: string,
+  right: string,
+  bottom: string,
+  top: string,
+  includeJams: boolean = false
+): string {
   // Round to 2 decimal places (~1km precision) to allow cache hits for nearby requests
   const roundTo = (n: string) => parseFloat(n).toFixed(2);
-  return `${CACHE_KEYS.WAZE_ALERTS}${roundTo(left)},${roundTo(right)},${roundTo(bottom)},${roundTo(top)}`;
+  const jamsSuffix = includeJams ? ":jams" : "";
+  return `${CACHE_KEYS.WAZE_ALERTS}${roundTo(left)},${roundTo(right)},${roundTo(bottom)},${roundTo(top)}${jamsSuffix}`;
 }
 
 // Check and increment global rate limit
@@ -35,12 +47,23 @@ async function checkRateLimit(): Promise<{ allowed: boolean; remaining: number }
 }
 
 export async function GET(request: NextRequest) {
+  // Validate API key
+  const apiKey = process.env.OPENWEB_NINJA_API_KEY;
+  if (!apiKey) {
+    console.error("OPENWEB_NINJA_API_KEY environment variable not set");
+    return NextResponse.json(
+      { error: "API configuration error", alerts: [] },
+      { status: 500 }
+    );
+  }
+
   const searchParams = request.nextUrl.searchParams;
-  
+
   const left = searchParams.get("left");
   const right = searchParams.get("right");
   const bottom = searchParams.get("bottom");
   const top = searchParams.get("top");
+  const includeJams = searchParams.get("jams") === "true";
 
   if (!left || !right || !bottom || !top) {
     return NextResponse.json(
@@ -49,15 +72,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const cacheKey = getCacheKey(left, right, bottom, top);
+  const cacheKey = getCacheKey(left, right, bottom, top, includeJams);
 
   // Try to get from Redis cache first
   try {
     const cached = await redis.get<{ alerts: unknown[] }>(cacheKey);
-    
+
     if (cached) {
       const alertCount = cached.alerts?.length || 0;
-      console.log(`[Waze] Cache HIT - ${alertCount} alerts`);
+      console.log(`[OpenWeb Ninja Waze] Cache HIT - ${alertCount} alerts`);
       return NextResponse.json(cached, {
         headers: {
           "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
@@ -72,7 +95,7 @@ export async function GET(request: NextRequest) {
 
   // Check global rate limit before making external request
   const { allowed, remaining } = await checkRateLimit();
-  
+
   if (!allowed) {
     // Track rate limit hit
     const posthog = getPostHogClient();
@@ -81,13 +104,14 @@ export async function GET(request: NextRequest) {
       event: "waze_global_rate_limited",
       properties: {
         bounds: { left, right, bottom, top },
+        provider: "openweb_ninja",
       },
     });
     await posthog.shutdown();
 
     return NextResponse.json(
       { error: "Rate limited", alerts: [] },
-      { 
+      {
         status: 429,
         headers: {
           "Retry-After": "60",
@@ -99,34 +123,43 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const wazeUrl = new URL("https://www.waze.com/live-map/api/georss");
-    wazeUrl.searchParams.set("left", left);
-    wazeUrl.searchParams.set("right", right);
-    wazeUrl.searchParams.set("bottom", bottom);
-    wazeUrl.searchParams.set("top", top);
-    
-    // Auto-detect region based on longitude
-    // North America is roughly between -170° and -30° longitude
-    const centerLon = (parseFloat(left) + parseFloat(right)) / 2;
-    const env = centerLon >= -170 && centerLon <= -30 ? "na" : "row";
-    wazeUrl.searchParams.set("env", env);
-    
-    wazeUrl.searchParams.set("types", "alerts");
+    // Convert bounds format from teslanav to OpenWeb Ninja format
+    const leftNum = parseFloat(left);
+    const rightNum = parseFloat(right);
+    const bottomNum = parseFloat(bottom);
+    const topNum = parseFloat(top);
 
-    const response = await fetch(wazeUrl.toString(), {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; TeslaNav/1.0)",
-        "Accept": "application/json",
-      },
-      next: { revalidate: 60 },
+    const { bottom_left, top_right } = convertBoundsToOpenWebNinja({
+      left: leftNum,
+      right: rightNum,
+      bottom: bottomNum,
+      top: topNum,
     });
 
-    // Handle Waze rate limiting
-    if (response.status === 429) {
+    // Build OpenWeb Ninja API request
+    const url = new URL("https://api.openweb.ninja/api/waze/alerts-and-jams");
+    url.searchParams.set("api_key", apiKey);
+    url.searchParams.set("bottom_left", bottom_left);
+    url.searchParams.set("top_right", top_right);
+    url.searchParams.set("max_alerts", "500");
+    url.searchParams.set("max_jams", includeJams ? "100" : "0");
+
+    console.log(
+      `[OpenWeb Ninja Waze] Fetching with bounds: ${bottom_left} to ${top_right}`
+    );
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    // Handle OpenWeb Ninja rate limiting
+    if (response.status === 429 || response.status === 403) {
       const posthog = getPostHogClient();
       posthog.capture({
         distinctId: "server",
-        event: "waze_upstream_rate_limited",
+        event: "openweb_ninja_upstream_rate_limited",
         properties: {
           bounds: { left, right, bottom, top },
         },
@@ -135,7 +168,7 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json(
         { error: "Rate limited", alerts: [] },
-        { 
+        {
           status: 429,
           headers: {
             "Retry-After": "60",
@@ -145,13 +178,51 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (!response.ok) {
-      throw new Error(`Waze API returned ${response.status}`);
+    // Handle API authentication errors
+    if (response.status === 401) {
+      console.error("OpenWeb Ninja API authentication failed (401)");
+      const posthog = getPostHogClient();
+      posthog.capture({
+        distinctId: "server",
+        event: "openweb_ninja_auth_error",
+        properties: {
+          status: 401,
+        },
+      });
+      await posthog.shutdown();
+
+      return NextResponse.json(
+        { error: "API configuration error", alerts: [] },
+        { status: 500 }
+      );
     }
 
-    const data = await response.json();
+    if (!response.ok) {
+      const statusText = response.statusText;
+      throw new Error(
+        `OpenWeb Ninja API returned ${response.status} ${statusText}`
+      );
+    }
+
+    const rawData = await response.json();
+
+    // Map OpenWeb Ninja response to WazeResponse format
+    let data = { alerts: [] as unknown[] };
+    try {
+      const openwebData = rawData as OpenWebNinjaResponse;
+      data = mapOpenWebNinjaResponse(openwebData, includeJams);
+    } catch (mapError) {
+      console.error("Failed to map OpenWeb Ninja response:", mapError);
+      // If mapping fails, try to extract alerts directly as fallback
+      if (Array.isArray(rawData.alerts)) {
+        data = { alerts: rawData.alerts };
+      }
+    }
+
     const alertCount = data.alerts?.length || 0;
-    console.log(`[Waze] Cache MISS - Fetched ${alertCount} alerts from Waze API`);
+    console.log(
+      `[OpenWeb Ninja Waze] Cache MISS - Fetched ${alertCount} alerts`
+    );
 
     // Store in Redis cache
     try {
@@ -168,13 +239,13 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Waze API error:", error);
+    console.error("OpenWeb Ninja Waze API error:", error);
 
-    // Track Waze API error
+    // Track OpenWeb Ninja API error
     const posthog = getPostHogClient();
     posthog.capture({
       distinctId: "server",
-      event: "waze_api_error",
+      event: "openweb_ninja_api_error",
       properties: {
         error_message: error instanceof Error ? error.message : "Unknown error",
         bounds: { left, right, bottom, top },
