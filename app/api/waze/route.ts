@@ -129,6 +129,55 @@ export async function GET(request: NextRequest) {
     const bottomNum = parseFloat(bottom);
     const topNum = parseFloat(top);
 
+    // Validate bounds are valid numbers within lat/lng ranges
+    if (
+      isNaN(leftNum) ||
+      isNaN(rightNum) ||
+      isNaN(bottomNum) ||
+      isNaN(topNum)
+    ) {
+      return NextResponse.json(
+        { error: "Invalid bounds parameters: must be valid numbers" },
+        { status: 400 }
+      );
+    }
+
+    // Validate longitude range (-180 to 180)
+    if (leftNum < -180 || leftNum > 180 || rightNum < -180 || rightNum > 180) {
+      return NextResponse.json(
+        { error: "Invalid bounds: longitude must be between -180 and 180" },
+        { status: 400 }
+      );
+    }
+
+    // Validate latitude range (-90 to 90)
+    if (
+      bottomNum < -90 ||
+      bottomNum > 90 ||
+      topNum < -90 ||
+      topNum > 90
+    ) {
+      return NextResponse.json(
+        { error: "Invalid bounds: latitude must be between -90 and 90" },
+        { status: 400 }
+      );
+    }
+
+    // Validate that left < right and bottom < top
+    if (leftNum >= rightNum) {
+      return NextResponse.json(
+        { error: "Invalid bounds: left must be less than right" },
+        { status: 400 }
+      );
+    }
+
+    if (bottomNum >= topNum) {
+      return NextResponse.json(
+        { error: "Invalid bounds: bottom must be less than top" },
+        { status: 400 }
+      );
+    }
+
     const { bottom_left, top_right } = convertBoundsToOpenWebNinja({
       left: leftNum,
       right: rightNum,
@@ -138,7 +187,6 @@ export async function GET(request: NextRequest) {
 
     // Build OpenWeb Ninja API request
     const url = new URL("https://api.openweb.ninja/api/waze/alerts-and-jams");
-    url.searchParams.set("api_key", apiKey);
     url.searchParams.set("bottom_left", bottom_left);
     url.searchParams.set("top_right", top_right);
     url.searchParams.set("max_alerts", "500");
@@ -151,6 +199,7 @@ export async function GET(request: NextRequest) {
     const response = await fetch(url.toString(), {
       headers: {
         Accept: "application/json",
+        Authorization: `Bearer ${apiKey}`,
       },
     });
 
@@ -198,9 +247,9 @@ export async function GET(request: NextRequest) {
     }
 
     if (!response.ok) {
-      const statusText = response.statusText;
+      // Don't expose raw error details from upstream API
       throw new Error(
-        `OpenWeb Ninja API returned ${response.status} ${statusText}`
+        `OpenWeb Ninja API error: ${response.status}`
       );
     }
 
@@ -241,13 +290,14 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("OpenWeb Ninja Waze API error:", error);
 
-    // Track OpenWeb Ninja API error
+    // Track OpenWeb Ninja API error (log full error server-side, but don't expose to client)
     const posthog = getPostHogClient();
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     posthog.capture({
       distinctId: "server",
       event: "openweb_ninja_api_error",
       properties: {
-        error_message: error instanceof Error ? error.message : "Unknown error",
+        error_message: errorMessage,
         bounds: { left, right, bottom, top },
       },
     });
