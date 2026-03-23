@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { redis, CACHE_KEYS, CACHE_TTL, RATE_LIMITS } from "@/lib/redis";
 import {
@@ -7,7 +8,31 @@ import {
   type OpenWebNinjaResponse,
 } from "@/lib/openweb-ninja";
 
-// Generate a cache key with tolerance for similar bounds (~1km precision)
+// Configuration constants
+const REQUEST_TIMEOUT_MS = 15000; // 15 second timeout for external API
+const MAX_RESPONSE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB max response
+const MAX_QUERY_STRING_SIZE = 2048; // Max query string length
+const PER_IP_RATE_LIMIT = 15; // Max 15 requests per minute per IP
+const GLOBAL_RATE_LIMIT = 60; // Max 60 requests per minute globally
+
+// Helper: Get client IP address safely
+function getClientIP(request: NextRequest): string {
+  // Try multiple headers in order of preference
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) {
+    return forwarded.split(",")[0].trim();
+  }
+
+  const clientIp = request.headers.get("x-client-ip");
+  if (clientIp) {
+    return clientIp;
+  }
+
+  // Fallback to connection IP (Next.js specific)
+  return request.ip || "unknown";
+}
+
+// Helper: Generate cache key using hash (prevents key injection)
 function getCacheKey(
   left: string,
   right: string,
@@ -15,45 +40,84 @@ function getCacheKey(
   top: string,
   includeJams: boolean = false
 ): string {
-  // Round to 2 decimal places (~1km precision) to allow cache hits for nearby requests
-  const roundTo = (n: string) => parseFloat(n).toFixed(2);
+  // Use hash to prevent key injection attacks
+  const boundString = `${left},${right},${bottom},${top}`;
+  const hash = createHash("sha256").update(boundString).digest("hex").slice(0, 16);
   const jamsSuffix = includeJams ? ":jams" : "";
-  return `${CACHE_KEYS.WAZE_ALERTS}${roundTo(left)},${roundTo(right)},${roundTo(bottom)},${roundTo(top)}${jamsSuffix}`;
+  return `${CACHE_KEYS.WAZE_ALERTS}${hash}${jamsSuffix}`;
 }
 
-// Check and increment global rate limit
-async function checkRateLimit(): Promise<{ allowed: boolean; remaining: number }> {
-  const key = CACHE_KEYS.WAZE_RATE_LIMIT;
-  
+// Check per-IP rate limit
+async function checkPerIPRateLimit(
+  clientIp: string
+): Promise<{ allowed: boolean; remaining: number }> {
+  const key = `${CACHE_KEYS.WAZE_RATE_LIMIT}:ip:${clientIp}`;
+
   try {
-    // Use Redis INCR with TTL for sliding window rate limiting
     const count = await redis.incr(key);
-    
-    // Set expiry on first request of the window
+
     if (count === 1) {
       await redis.expire(key, CACHE_TTL.RATE_LIMIT_WINDOW);
     }
-    
-    const remaining = Math.max(0, RATE_LIMITS.WAZE_REQUESTS_PER_MINUTE - count);
+
+    const remaining = Math.max(0, PER_IP_RATE_LIMIT - count);
     return {
-      allowed: count <= RATE_LIMITS.WAZE_REQUESTS_PER_MINUTE,
+      allowed: count <= PER_IP_RATE_LIMIT,
       remaining,
     };
   } catch (error) {
-    // If Redis fails, allow the request but log it
-    console.error("Redis rate limit check failed:", error);
-    return { allowed: true, remaining: RATE_LIMITS.WAZE_REQUESTS_PER_MINUTE };
+    // FAIL SECURE: If rate limiter fails, reject request
+    console.error("Redis per-IP rate limit check failed:", error);
+    return { allowed: false, remaining: 0 };
+  }
+}
+
+// Check global rate limit
+async function checkGlobalRateLimit(): Promise<{
+  allowed: boolean;
+  remaining: number;
+}> {
+  const key = CACHE_KEYS.WAZE_RATE_LIMIT;
+
+  try {
+    const count = await redis.incr(key);
+
+    if (count === 1) {
+      await redis.expire(key, CACHE_TTL.RATE_LIMIT_WINDOW);
+    }
+
+    const remaining = Math.max(0, GLOBAL_RATE_LIMIT - count);
+    return {
+      allowed: count <= GLOBAL_RATE_LIMIT,
+      remaining,
+    };
+  } catch (error) {
+    // FAIL SECURE: If rate limiter fails, reject request
+    console.error("Redis global rate limit check failed:", error);
+    return { allowed: false, remaining: 0 };
   }
 }
 
 export async function GET(request: NextRequest) {
-  // Validate API key
+  // SECURITY: Validate API key exists
   const apiKey = process.env.OPENWEB_NINJA_API_KEY;
   if (!apiKey) {
     console.error("OPENWEB_NINJA_API_KEY environment variable not set");
     return NextResponse.json(
       { error: "API configuration error", alerts: [] },
       { status: 500 }
+    );
+  }
+
+  // SECURITY: Get client IP for per-IP rate limiting
+  const clientIP = getClientIP(request);
+
+  // SECURITY: Validate query string size
+  const queryString = request.nextUrl.search;
+  if (queryString.length > MAX_QUERY_STRING_SIZE) {
+    return NextResponse.json(
+      { error: "Request too large" },
+      { status: 413 }
     );
   }
 
@@ -69,6 +133,53 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { error: "Missing required bounds parameters" },
       { status: 400 }
+    );
+  }
+
+  // SECURITY: Check per-IP rate limit FIRST (tighter limit)
+  const ipLimit = await checkPerIPRateLimit(clientIP);
+  if (!ipLimit.allowed) {
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: clientIP,
+      event: "waze_per_ip_rate_limited",
+      properties: { ip: clientIP },
+    });
+    await posthog.shutdown();
+
+    return NextResponse.json(
+      { error: "Rate limited", alerts: [] },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": "60",
+          "Cache-Control": "no-store",
+          "X-RateLimit-Remaining": "0",
+        },
+      }
+    );
+  }
+
+  // SECURITY: Check global rate limit
+  const globalLimit = await checkGlobalRateLimit();
+  if (!globalLimit.allowed) {
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: "server",
+      event: "waze_global_rate_limited",
+      properties: { reason: "global_limit_exceeded" },
+    });
+    await posthog.shutdown();
+
+    return NextResponse.json(
+      { error: "Service temporarily unavailable", alerts: [] },
+      {
+        status: 503,
+        headers: {
+          "Retry-After": "60",
+          "Cache-Control": "no-store",
+        },
+      }
     );
   }
 
@@ -91,35 +202,6 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     // Log but continue if cache read fails
     console.error("Redis cache read failed:", error);
-  }
-
-  // Check global rate limit before making external request
-  const { allowed, remaining } = await checkRateLimit();
-
-  if (!allowed) {
-    // Track rate limit hit
-    const posthog = getPostHogClient();
-    posthog.capture({
-      distinctId: "server",
-      event: "waze_global_rate_limited",
-      properties: {
-        bounds: { left, right, bottom, top },
-        provider: "openweb_ninja",
-      },
-    });
-    await posthog.shutdown();
-
-    return NextResponse.json(
-      { error: "Rate limited", alerts: [] },
-      {
-        status: 429,
-        headers: {
-          "Retry-After": "60",
-          "Cache-Control": "no-store",
-          "X-RateLimit-Remaining": "0",
-        },
-      }
-    );
   }
 
   try {
@@ -192,134 +274,171 @@ export async function GET(request: NextRequest) {
     url.searchParams.set("max_alerts", "500");
     url.searchParams.set("max_jams", includeJams ? "100" : "0");
 
-    console.log(
-      `[OpenWeb Ninja Waze] Fetching with bounds: ${bottom_left} to ${top_right}`
+    // SECURITY: Log sanitized info (no exposing full bounds in logs)
+    console.log("[OpenWeb Ninja Waze] Fetching alerts data");
+
+    // SECURITY: Create abort controller with timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      REQUEST_TIMEOUT_MS
     );
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-    });
-
-    // Handle OpenWeb Ninja rate limiting
-    if (response.status === 429 || response.status === 403) {
-      const posthog = getPostHogClient();
-      posthog.capture({
-        distinctId: "server",
-        event: "openweb_ninja_upstream_rate_limited",
-        properties: {
-          bounds: { left, right, bottom, top },
+    try {
+      const response = await fetch(url.toString(), {
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${apiKey}`,
         },
       });
-      await posthog.shutdown();
 
-      return NextResponse.json(
-        { error: "Rate limited", alerts: [] },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": "60",
-            "Cache-Control": "no-store",
-          },
+      // SECURITY: Validate Content-Type header
+      const contentType = response.headers.get("content-type");
+      if (!contentType?.includes("application/json")) {
+        throw new Error(
+          "Invalid response: expected application/json"
+        );
+      }
+
+      // SECURITY: Validate Content-Length header before downloading
+      const contentLength = response.headers.get("content-length");
+      if (contentLength) {
+        const size = parseInt(contentLength, 10);
+        if (size > MAX_RESPONSE_SIZE_BYTES) {
+          throw new Error(
+            `Response too large: ${size} bytes exceeds ${MAX_RESPONSE_SIZE_BYTES}`
+          );
         }
-      );
-    }
+      }
 
-    // Handle API authentication errors
-    if (response.status === 401) {
-      console.error("OpenWeb Ninja API authentication failed (401)");
+      // Handle OpenWeb Ninja rate limiting
+      if (response.status === 429 || response.status === 403) {
+        const posthog = getPostHogClient();
+        posthog.capture({
+          distinctId: "server",
+          event: "openweb_ninja_upstream_rate_limited",
+          properties: { reason: "upstream_rate_limit" },
+        });
+        await posthog.shutdown();
+
+        return NextResponse.json(
+          { error: "Rate limited", alerts: [] },
+          {
+            status: 429,
+            headers: {
+              "Retry-After": "60",
+              "Cache-Control": "no-store",
+            },
+          }
+        );
+      }
+
+      // Handle API authentication errors
+      if (response.status === 401) {
+        console.error("OpenWeb Ninja API authentication failed (401)");
+        const posthog = getPostHogClient();
+        posthog.capture({
+          distinctId: "server",
+          event: "openweb_ninja_auth_error",
+          properties: { status: 401 },
+        });
+        await posthog.shutdown();
+
+        return NextResponse.json(
+          { error: "API configuration error", alerts: [] },
+          { status: 500 }
+        );
+      }
+
+      if (!response.ok) {
+        // Don't expose raw error details from upstream API
+        throw new Error(`OpenWeb Ninja API error: ${response.status}`);
+      }
+
+      const rawData = await response.json();
+
+      // Map OpenWeb Ninja response to WazeResponse format
+      let data = { alerts: [] as unknown[] };
+      try {
+        const openwebData = rawData as OpenWebNinjaResponse;
+        data = mapOpenWebNinjaResponse(openwebData, includeJams);
+      } catch (mapError) {
+        console.error("Failed to map OpenWeb Ninja response:", mapError);
+        // If mapping fails, try to extract alerts directly as fallback
+        if (Array.isArray(rawData.alerts)) {
+          data = { alerts: rawData.alerts };
+        }
+      }
+
+      const alertCount = data.alerts?.length || 0;
+      console.log(
+        `[OpenWeb Ninja Waze] Cache MISS - Fetched ${alertCount} alerts`
+      );
+
+      // Store in Redis cache
+      try {
+        await redis.set(cacheKey, data, { ex: CACHE_TTL.WAZE_ALERTS });
+      } catch (error) {
+        console.error("Redis cache write failed:", error);
+      }
+
+      return NextResponse.json(data, {
+        headers: {
+          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
+          "X-Cache": "MISS",
+          "X-RateLimit-Remaining": globalLimit.remaining.toString(),
+        },
+      });
+    } catch (fetchError) {
+      console.error("OpenWeb Ninja Waze API error:", fetchError);
+
+      // SECURITY: Handle timeout errors
+      if (fetchError instanceof Error && fetchError.name === "AbortError") {
+        return NextResponse.json(
+          { error: "Request timeout", alerts: [] },
+          { status: 504 }
+        );
+      }
+
+      // Track OpenWeb Ninja API error (log full error server-side, but don't expose to client)
       const posthog = getPostHogClient();
+      const errorMessage =
+        fetchError instanceof Error ? fetchError.message : "Unknown error";
       posthog.capture({
         distinctId: "server",
-        event: "openweb_ninja_auth_error",
-        properties: {
-          status: 401,
-        },
+        event: "openweb_ninja_api_error",
+        properties: { error_message: errorMessage },
       });
       await posthog.shutdown();
 
+      // Try to return stale cached data as fallback
+      try {
+        const stale = await redis.get<{ alerts: unknown[] }>(cacheKey);
+        if (stale) {
+          return NextResponse.json(stale, {
+            headers: {
+              "Cache-Control": "public, s-maxage=30",
+              "X-Cache": "STALE",
+            },
+          });
+        }
+      } catch {
+        // Ignore cache error on fallback
+      }
+
       return NextResponse.json(
-        { error: "API configuration error", alerts: [] },
+        { error: "Failed to fetch Waze data", alerts: [] },
         { status: 500 }
       );
+    } finally {
+      // SECURITY: Always clear the timeout
+      clearTimeout(timeout);
     }
-
-    if (!response.ok) {
-      // Don't expose raw error details from upstream API
-      throw new Error(
-        `OpenWeb Ninja API error: ${response.status}`
-      );
-    }
-
-    const rawData = await response.json();
-
-    // Map OpenWeb Ninja response to WazeResponse format
-    let data = { alerts: [] as unknown[] };
-    try {
-      const openwebData = rawData as OpenWebNinjaResponse;
-      data = mapOpenWebNinjaResponse(openwebData, includeJams);
-    } catch (mapError) {
-      console.error("Failed to map OpenWeb Ninja response:", mapError);
-      // If mapping fails, try to extract alerts directly as fallback
-      if (Array.isArray(rawData.alerts)) {
-        data = { alerts: rawData.alerts };
-      }
-    }
-
-    const alertCount = data.alerts?.length || 0;
-    console.log(
-      `[OpenWeb Ninja Waze] Cache MISS - Fetched ${alertCount} alerts`
-    );
-
-    // Store in Redis cache
-    try {
-      await redis.set(cacheKey, data, { ex: CACHE_TTL.WAZE_ALERTS });
-    } catch (error) {
-      console.error("Redis cache write failed:", error);
-    }
-
-    return NextResponse.json(data, {
-      headers: {
-        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
-        "X-Cache": "MISS",
-        "X-RateLimit-Remaining": remaining.toString(),
-      },
-    });
   } catch (error) {
-    console.error("OpenWeb Ninja Waze API error:", error);
-
-    // Track OpenWeb Ninja API error (log full error server-side, but don't expose to client)
-    const posthog = getPostHogClient();
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    posthog.capture({
-      distinctId: "server",
-      event: "openweb_ninja_api_error",
-      properties: {
-        error_message: errorMessage,
-        bounds: { left, right, bottom, top },
-      },
-    });
-    await posthog.shutdown();
-
-    // Try to return stale cached data as fallback
-    try {
-      const stale = await redis.get<{ alerts: unknown[] }>(cacheKey);
-      if (stale) {
-        return NextResponse.json(stale, {
-          headers: {
-            "Cache-Control": "public, s-maxage=30",
-            "X-Cache": "STALE",
-          },
-        });
-      }
-    } catch {
-      // Ignore cache error on fallback
-    }
-
+    console.error("Unexpected error in Waze API:", error);
     return NextResponse.json(
-      { error: "Failed to fetch Waze data", alerts: [] },
+      { error: "Internal server error", alerts: [] },
       { status: 500 }
     );
   }
