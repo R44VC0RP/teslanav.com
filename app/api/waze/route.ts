@@ -336,7 +336,13 @@ export async function GET(request: NextRequest) {
 
       // Handle API authentication errors
       if (response.status === 401) {
-        console.error("OpenWeb Ninja API authentication failed (401)");
+        try {
+          const errorBody = await response.json();
+          console.error("OpenWeb Ninja API authentication failed (401):", errorBody);
+        } catch {
+          const errorText = await response.text();
+          console.error("OpenWeb Ninja API authentication failed (401):", errorText);
+        }
         const posthog = getPostHogClient();
         posthog.capture({
           distinctId: "server",
