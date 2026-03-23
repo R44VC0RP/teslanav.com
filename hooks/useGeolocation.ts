@@ -14,6 +14,7 @@ interface GeolocationState {
   // Calculated/interpolated values for smooth animation
   calculatedHeading: number | null;
   timestamp: number | null;
+  permissionDenied: boolean;
 }
 
 // Calculate bearing between two points in degrees (0-360, where 0 is north)
@@ -85,6 +86,7 @@ export function useGeolocation(enableHighAccuracy = true) {
     loading: true,
     calculatedHeading: null,
     timestamp: null,
+    permissionDenied: false,
   });
 
   const [watchId, setWatchId] = useState<number | null>(null);
@@ -160,10 +162,11 @@ export function useGeolocation(enableHighAccuracy = true) {
 
   const handleError = useCallback((error: GeolocationPositionError) => {
     let errorMsg = error.message;
+    const isPermissionDenied = error.code === 1;
 
     // Provide more helpful error messages
     if (error.code === 1) {
-      errorMsg = "Location access denied. Please enable geolocation in browser settings.";
+      errorMsg = "Location access denied. Tap 'Request Permission' to try again.";
     } else if (error.code === 2) {
       errorMsg = "Location unavailable. Please ensure geolocation is enabled.";
     } else if (error.code === 3) {
@@ -174,6 +177,7 @@ export function useGeolocation(enableHighAccuracy = true) {
       ...prev,
       error: errorMsg,
       loading: false,
+      permissionDenied: isPermissionDenied,
     }));
 
     // Track geolocation error
@@ -232,14 +236,43 @@ export function useGeolocation(enableHighAccuracy = true) {
     }
   }, [watchId]);
 
+  // Request permission manually (for when user taps "Request Permission")
+  const requestPermission = useCallback(() => {
+    if (!navigator.geolocation) {
+      setState((prev) => ({
+        ...prev,
+        error: "Geolocation is not supported",
+        loading: false,
+      }));
+      return;
+    }
+
+    setState((prev) => ({
+      ...prev,
+      loading: true,
+      error: null,
+      permissionDenied: false,
+    }));
+
+    const options: PositionOptions = {
+      enableHighAccuracy,
+      timeout: 10000,
+      maximumAge: 0,
+    };
+
+    // Request position - this triggers the permission prompt
+    navigator.geolocation.getCurrentPosition(updatePosition, handleError, options);
+  }, [enableHighAccuracy, updatePosition, handleError]);
+
   // Return the best available heading (GPS heading if moving fast enough, otherwise calculated)
   const bestHeading = state.heading !== null && state.speed !== null && state.speed > MIN_SPEED_FOR_HEADING
     ? state.heading
     : state.calculatedHeading;
 
-  return { 
-    ...state, 
+  return {
+    ...state,
     stopWatching,
+    requestPermission,
     // Provide the best heading source
     effectiveHeading: bestHeading,
   };

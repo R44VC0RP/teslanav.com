@@ -11,13 +11,15 @@ import Link from "next/link";
 export default function RecordPage() {
   const mapRef = useRef<MapRef>(null);
   
-  const { 
-    latitude, 
-    longitude, 
-    effectiveHeading, 
+  const {
+    latitude,
+    longitude,
+    effectiveHeading,
     speed,
     accuracy,
-    error: geoError 
+    error: geoError,
+    permissionDenied,
+    requestPermission,
   } = useGeolocation();
   
   const {
@@ -80,15 +82,33 @@ export default function RecordPage() {
                 <div className="text-center">
                   <h2 className="text-lg font-semibold text-gray-900 mb-2">Location Error</h2>
                   <p className="text-gray-600 text-sm mb-4">{geoError}</p>
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left text-sm text-blue-900">
-                    <p className="font-semibold mb-2">How to fix:</p>
-                    <ul className="list-disc list-inside space-y-1">
-                      <li>Ensure you're using HTTPS (or localhost)</li>
-                      <li>Check browser location permissions</li>
-                      <li>Allow location access when prompted</li>
-                      <li>Restart your browser and try again</li>
-                    </ul>
-                  </div>
+                  {permissionDenied && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+                      <p className="text-sm text-amber-900 mb-3">
+                        Location access was denied. You can request permission again:
+                      </p>
+                      <button
+                        onClick={requestPermission}
+                        className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors"
+                      >
+                        Request Permission
+                      </button>
+                      <p className="text-xs text-amber-800 mt-3">
+                        If prompted, please select "Allow" to grant location access.
+                      </p>
+                    </div>
+                  )}
+                  {!permissionDenied && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left text-sm text-blue-900">
+                      <p className="font-semibold mb-2">How to fix:</p>
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>Ensure you're using HTTPS</li>
+                        <li>Check browser location permissions</li>
+                        <li>Allow location access when prompted</li>
+                        <li>Restart your browser and try again</li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
