@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { PROJECT_SHUTDOWN_ENABLED } from "@/lib/shutdown";
+
+function isShutdownEnabled(): boolean {
+  const shutdownValue = process.env.NEXT_PUBLIC_PROJECT_SHUTDOWN;
+  if (!shutdownValue) {
+    return true;
+  }
+  const disabledValues = new Set(["0", "false", "off", "no"]);
+  return !disabledValues.has(shutdownValue.trim().toLowerCase());
+}
 
 export function proxy(request: NextRequest): NextResponse {
-  if (!PROJECT_SHUTDOWN_ENABLED) {
+  if (!isShutdownEnabled()) {
     return NextResponse.next();
   }
 
