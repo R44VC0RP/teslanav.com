@@ -159,9 +159,20 @@ export function useGeolocation(enableHighAccuracy = true) {
   }, []);
 
   const handleError = useCallback((error: GeolocationPositionError) => {
+    let errorMsg = error.message;
+
+    // Provide more helpful error messages
+    if (error.code === 1) {
+      errorMsg = "Location access denied. Please enable geolocation in browser settings.";
+    } else if (error.code === 2) {
+      errorMsg = "Location unavailable. Please ensure geolocation is enabled.";
+    } else if (error.code === 3) {
+      errorMsg = "Location request timed out. Please try again.";
+    }
+
     setState((prev) => ({
       ...prev,
-      error: error.message,
+      error: errorMsg,
       loading: false,
     }));
 
@@ -177,6 +188,18 @@ export function useGeolocation(enableHighAccuracy = true) {
       setState((prev) => ({
         ...prev,
         error: "Geolocation is not supported",
+        loading: false,
+      }));
+      return;
+    }
+
+    // Check if page is HTTPS or localhost (geolocation requires secure context)
+    const isSecureContext = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    if (!isSecureContext) {
+      setState((prev) => ({
+        ...prev,
+        error: "Geolocation requires HTTPS. Please access this site over HTTPS.",
         loading: false,
       }));
       return;
