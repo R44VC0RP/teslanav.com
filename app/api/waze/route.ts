@@ -268,7 +268,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Build OpenWeb Ninja API request
-    const url = new URL("https://www.openwebninja.com/api/waze/alerts-and-jams");
+    const url = new URL("https://api.openwebninja.com/waze/alerts-and-jams");
     url.searchParams.set("bottom_left", bottom_left);
     url.searchParams.set("top_right", top_right);
     url.searchParams.set("max_alerts", "500");
@@ -289,7 +289,7 @@ export async function GET(request: NextRequest) {
         signal: controller.signal,
         headers: {
           Accept: "application/json",
-          Authorization: `Bearer ${apiKey}`,
+          "X-API-Key": apiKey,
         },
       });
 
