@@ -268,6 +268,20 @@ export default function RootLayout({
                 strategy="beforeInteractive"
               />
             )}
+            {/* Eruda Debug Console - Enable with ?debug=true or localStorage.setItem('eruda-enabled', 'true') */}
+            <Script
+              src="https://cdn.jsdelivr.net/npm/eruda@3"
+              strategy="afterInteractive"
+              onLoad={() => {
+                const isEnabled =
+                  typeof window !== 'undefined' &&
+                  (new URLSearchParams(window.location.search).get('debug') === 'true' ||
+                   localStorage.getItem('eruda-enabled') === 'true');
+                if (isEnabled && typeof (window as any).eruda !== 'undefined') {
+                  (window as any).eruda.init();
+                }
+              }}
+            />
             <Script
               data-website-id="dfid_RO5g2rWwS6cGfyTS7wGGW"
               data-domain="teslanav.com"
