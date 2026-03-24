@@ -398,7 +398,7 @@ export async function GET(request: NextRequest) {
         headers: {
           "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
           "X-Cache": "MISS",
-          "X-RateLimit-Remaining": globalLimit.remaining.toString(),
+          "X-RateLimit-Remaining": "0", // TODO: Re-enable when Redis is fixed
         },
       });
     } catch (fetchError) {
