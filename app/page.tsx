@@ -129,7 +129,13 @@ function LiveHome() {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(false);
   const [dismissedMobileWarning, setDismissedMobileWarning] = useState(false);
-  
+
+  // iOS detection - for location permission handling
+  const [isIOS, setIsIOS] = useState(false);
+  useEffect(() => {
+    setIsIOS(/iPad|iPhone|iPod/.test(navigator.userAgent));
+  }, []);
+
   // Police alert settings - use lazy init to read from localStorage immediately
   const [policeAlertDistance, setPoliceAlertDistance] = useState(() => {
     if (typeof window !== "undefined") {
@@ -919,14 +925,14 @@ function LiveHome() {
               <div className="absolute inset-0 w-12 h-12 border-4 border-transparent border-t-blue-400/30 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }} />
             </div>
             <span className="text-gray-400 text-sm font-medium">
-              {geoError ? geoError : "Finding your location..."}
+              {geoError ? geoError : isIOS ? "Enable location access" : "Finding your location..."}
             </span>
-            {geoError && (
+            {(geoError || isIOS) && (
               <button
                 onClick={requestPermission}
                 className="mt-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors"
               >
-                Try Again
+                {geoError ? "Try Again" : "Request Permission"}
               </button>
             )}
           </div>

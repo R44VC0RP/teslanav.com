@@ -212,6 +212,17 @@ export function useGeolocation(enableHighAccuracy = true) {
       return;
     }
 
+    // Check if on iOS Safari - requires user gesture to trigger permission prompt
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (isIOS) {
+      // On iOS, don't auto-start geolocation - user must tap button first
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+      }));
+      return;
+    }
+
     const options: PositionOptions = {
       enableHighAccuracy,
       timeout: 10000,
