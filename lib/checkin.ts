@@ -65,7 +65,7 @@ export async function recalculateVIP(superchargerId: string, userId?: string): P
   const locationKey = `${CACHE_KEYS.LOCATION_CHECKINS}${superchargerId}`;
 
   // Get the user with most check-ins
-  const topUsers = await redis.zrange(locationKey, 0, 0, { rev: true });
+  const topUsers = (await redis.zrange(locationKey, 0, 0, { rev: true })) as string[] | null;
 
   if (!topUsers || topUsers.length === 0) {
     return null;
@@ -105,7 +105,7 @@ export async function getLocationLeaderboard(
   // Get top users with their check-in counts
   const results = await redis.zrange(locationKey, 0, limit - 1, {
     rev: true,
-    withscores: true,
+    withScores: true,
   });
 
   const entries: LeaderboardEntry[] = [];
@@ -137,7 +137,7 @@ export async function getGlobalLeaderboard(limit: number = 10): Promise<Leaderbo
   // Get top users across all locations
   const results = await redis.zrange(globalKey, 0, limit - 1, {
     rev: true,
-    withscores: true,
+    withScores: true,
   });
 
   const entries: LeaderboardEntry[] = [];

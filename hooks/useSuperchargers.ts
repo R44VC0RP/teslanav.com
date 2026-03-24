@@ -21,7 +21,7 @@ export function useSuperchargers(): UseSuperchargers {
       setError(null);
 
       // Create cache key from bounds
-      const cacheKey = `${bounds.minLat}-${bounds.minLng}-${bounds.maxLat}-${bounds.maxLng}`;
+      const cacheKey = `${bounds.south}-${bounds.west}-${bounds.north}-${bounds.east}`;
 
       // Check cache
       if (cacheRef.current.has(cacheKey)) {
@@ -30,9 +30,9 @@ export function useSuperchargers(): UseSuperchargers {
         return;
       }
 
-      // Fetch from API
+      // Fetch from API (convert bounds to min/max format for API)
       const response = await fetch(
-        `/api/superchargers?minLat=${bounds.minLat}&minLng=${bounds.minLng}&maxLat=${bounds.maxLat}&maxLng=${bounds.maxLng}`,
+        `/api/superchargers?minLat=${bounds.south}&minLng=${bounds.west}&maxLat=${bounds.north}&maxLng=${bounds.east}`,
         { method: "GET", credentials: "include" }
       );
 

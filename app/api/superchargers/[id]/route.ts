@@ -11,10 +11,10 @@ import {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
     const searchParams = request.nextUrl.searchParams;
     const includeAvailability = searchParams.get("availability") === "true";
     const includePricing = searchParams.get("pricing") === "true";
@@ -28,7 +28,9 @@ export async function GET(
       supercharger = data;
 
       // Cache it
-      await cacheSupercharger(supercharger);
+      if (supercharger) {
+        await cacheSupercharger(supercharger);
+      }
     }
 
     // Get availability if requested

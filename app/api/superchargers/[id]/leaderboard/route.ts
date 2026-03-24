@@ -4,10 +4,10 @@ import { getSuperchargerFromCache } from "@/lib/supercharger-cache";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id: superchargerId } = params;
+    const { id: superchargerId } = await params;
     const searchParams = request.nextUrl.searchParams;
     const limit = parseInt(searchParams.get("limit") || "10");
 
