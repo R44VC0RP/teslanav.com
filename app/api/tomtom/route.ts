@@ -86,6 +86,7 @@ export async function GET(request: NextRequest) {
     url.searchParams.set("language", "en");
 
     console.log("[TomTom Traffic] Fetching incidents");
+    console.log("[TomTom Traffic] URL:", url.toString().replace(apiKey, "***"));
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
