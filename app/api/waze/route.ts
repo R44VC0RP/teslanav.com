@@ -103,11 +103,13 @@ export async function GET(request: NextRequest) {
   const apiKey = process.env.OPENWEB_NINJA_API_KEY;
   if (!apiKey) {
     console.error("OPENWEB_NINJA_API_KEY environment variable not set");
+    console.error("Available env vars:", Object.keys(process.env).filter(k => k.includes('OPENWEB') || k.includes('NINJA')));
     return NextResponse.json(
-      { error: "API configuration error", alerts: [] },
+      { error: "API configuration error - API key not found", alerts: [] },
       { status: 500 }
     );
   }
+  console.log("OPENWEB_NINJA_API_KEY is set, length:", apiKey.length);
 
   // SECURITY: Get client IP for per-IP rate limiting
   const clientIP = getClientIP(request);
@@ -276,6 +278,7 @@ export async function GET(request: NextRequest) {
 
     // SECURITY: Log sanitized info (no exposing full bounds in logs)
     console.log("[OpenWeb Ninja Waze] Fetching alerts data");
+    console.log("[OpenWeb Ninja Waze] URL:", url.toString().replace(apiKey, "***"));
 
     // SECURITY: Create abort controller with timeout
     const controller = new AbortController();
@@ -292,6 +295,8 @@ export async function GET(request: NextRequest) {
           "X-API-Key": apiKey,
         },
       });
+
+      console.log("[OpenWeb Ninja Waze] Response status:", response.status);
 
       // SECURITY: Validate Content-Type header
       const contentType = response.headers.get("content-type");
