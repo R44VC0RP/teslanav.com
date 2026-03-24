@@ -21,6 +21,26 @@ export const CACHE_KEYS = {
   ALERT_SENT: "api:alert:", // Format: api:alert:{api_name}:{threshold}:{YYYY-MM}
   // Tile cache metadata (stores Vercel Blob URLs)
   TILE_CACHE: "tile:cache:", // Format: tile:cache:{encoded_url}
+  // Authentication
+  USER: "user:", // Format: user:{userId}
+  USER_EMAIL: "user:email:", // Format: user:email:{email}
+  USER_SESSION: "user:session:", // Format: user:session:{sessionId}
+  USER_OAUTH: "user:oauth:", // Format: user:oauth:{provider}:{providerId}
+  // Superchargers
+  SUPERCHARGER: "supercharger:", // Format: supercharger:{id}
+  SUPERCHARGER_LOCATIONS: "supercharger:locations",
+  SUPERCHARGER_BOUNDS: "supercharger:bounds:", // Format: supercharger:bounds:{hash}
+  SUPERCHARGER_AVAILABILITY: "supercharger:availability:", // Format: supercharger:availability:{id}
+  SUPERCHARGER_PRICING: "supercharger:pricing:", // Format: supercharger:pricing:{id}
+  // Check-ins & Gamification
+  CHECKIN: "checkin:", // Format: checkin:{userId}:{superchargerId}
+  LOCATION_CHECKINS: "location:checkins:", // Format: location:checkins:{superchargerId}
+  USER_CHECKINS: "user:checkins:", // Format: user:checkins:{userId}
+  LOCATION_VIP: "location:vip:", // Format: location:vip:{superchargerId}
+  LOCATION_LEADERBOARD: "location:leaderboard:", // Format: location:leaderboard:{superchargerId}
+  USER_STATS: "user:stats:", // Format: user:stats:{userId}
+  USER_VIP_LOCATIONS: "user:vip:locations:", // Format: user:vip:locations:{userId}
+  LEADERBOARD_GLOBAL: "leaderboard:global",
 } as const;
 
 // Cache TTLs in seconds
@@ -34,6 +54,12 @@ export const CACHE_TTL = {
   API_USAGE: 86400 * 35, // 35 days for monthly usage tracking
   API_USAGE_DAILY: 86400 * 7, // 7 days for daily usage
   TILE_CACHE: 86400 * 15, // 15 days for tile cache
+  // Auth
+  USER_SESSION: 86400 * 30, // 30 days for user sessions
+  // Superchargers
+  SUPERCHARGER_AVAILABILITY: 300, // 5 minutes for real-time availability
+  SUPERCHARGER_PRICING: 3600, // 1 hour for pricing data
+  SUPERCHARGER_METADATA: 86400, // 24 hours for supercharger metadata
 } as const;
 
 // Global rate limit settings
