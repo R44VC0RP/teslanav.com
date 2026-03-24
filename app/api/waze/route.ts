@@ -139,51 +139,51 @@ export async function GET(request: NextRequest) {
   }
 
   // SECURITY: Check per-IP rate limit FIRST (tighter limit)
-  const ipLimit = await checkPerIPRateLimit(clientIP);
-  if (!ipLimit.allowed) {
-    const posthog = getPostHogClient();
-    posthog.capture({
-      distinctId: clientIP,
-      event: "waze_per_ip_rate_limited",
-      properties: { ip: clientIP },
-    });
-    await posthog.shutdown();
-
-    return NextResponse.json(
-      { error: "Rate limited", alerts: [] },
-      {
-        status: 429,
-        headers: {
-          "Retry-After": "60",
-          "Cache-Control": "no-store",
-          "X-RateLimit-Remaining": "0",
-        },
-      }
-    );
-  }
+  // const ipLimit = await checkPerIPRateLimit(clientIP);
+  // if (!ipLimit.allowed) {
+  //   const posthog = getPostHogClient();
+  //   posthog.capture({
+  //     distinctId: clientIP,
+  //     event: "waze_per_ip_rate_limited",
+  //     properties: { ip: clientIP },
+  //   });
+  //   await posthog.shutdown();
+  //
+  //   return NextResponse.json(
+  //     { error: "Rate limited", alerts: [] },
+  //     {
+  //       status: 429,
+  //       headers: {
+  //         "Retry-After": "60",
+  //         "Cache-Control": "no-store",
+  //         "X-RateLimit-Remaining": "0",
+  //       },
+  //     }
+  //   );
+  // }
 
   // SECURITY: Check global rate limit
-  const globalLimit = await checkGlobalRateLimit();
-  if (!globalLimit.allowed) {
-    const posthog = getPostHogClient();
-    posthog.capture({
-      distinctId: "server",
-      event: "waze_global_rate_limited",
-      properties: { reason: "global_limit_exceeded" },
-    });
-    await posthog.shutdown();
-
-    return NextResponse.json(
-      { error: "Service temporarily unavailable", alerts: [] },
-      {
-        status: 503,
-        headers: {
-          "Retry-After": "60",
-          "Cache-Control": "no-store",
-        },
-      }
-    );
-  }
+  // const globalLimit = await checkGlobalRateLimit();
+  // if (!globalLimit.allowed) {
+  //   const posthog = getPostHogClient();
+  //   posthog.capture({
+  //     distinctId: "server",
+  //     event: "waze_global_rate_limited",
+  //     properties: { reason: "global_limit_exceeded" },
+  //   });
+  //   await posthog.shutdown();
+  //
+  //   return NextResponse.json(
+  //     { error: "Service temporarily unavailable", alerts: [] },
+  //     {
+  //       status: 503,
+  //       headers: {
+  //         "Retry-After": "60",
+  //         "Cache-Control": "no-store",
+  //       },
+  //     }
+  //   );
+  // }
 
   const cacheKey = getCacheKey(left, right, bottom, top, includeJams);
 
