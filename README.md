@@ -83,17 +83,38 @@ BLOB_READ_WRITE_TOKEN=vercel_blob_...
 
 # LocationIQ — geocoding/search
 # Get a free key at https://locationiq.com
-LOCATIONIQ_API_KEY=pk....
+LOCATION_IQ_TOKEN=pk....
+
+# TomTom — real-time traffic incidents
+# Get an API key at https://developer.tomtom.com
+TOMTOM_API_KEY=...
+
+# OpenWeb Ninja — Waze alerts proxy
+# Get an API key at https://openwebninja.com
+OPENWEB_NINJA_API_KEY=...
 
 # Inbound — feedback emails and admin alerts (optional)
 # https://inbound.new
 INBOUND_API_KEY=...
 
-# Admin dashboard — protects /api/admin/* routes
-ADMIN_API_KEY=your-secret-key
+# Admin dashboard — protects /api/admin/* routes (optional)
+ADMIN_SECRET=your-secret-key
 ```
 
-Only `NEXT_PUBLIC_MAPBOX_TOKEN` is strictly required to run the map. Other services degrade gracefully when keys are absent (search, alerts, and recording will not function).
+**Required:**
+- `NEXT_PUBLIC_MAPBOX_TOKEN` — map rendering and directions
+
+**Recommended for full functionality:**
+- `TOMTOM_API_KEY` — real-time traffic incidents
+- `OPENWEB_NINJA_API_KEY` — Waze alerts (police, accidents, hazards)
+- `LOCATION_IQ_TOKEN` — search/geocoding
+- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` — caching and rate limiting
+
+**Optional:**
+- `BLOB_READ_WRITE_TOKEN` — GPX recording storage
+- `NEXT_PUBLIC_POSTHOG_KEY` — analytics
+- `INBOUND_API_KEY` — feedback emails
+- `ADMIN_SECRET` — admin dashboard protection
 
 ## Self-Hosting
 
@@ -124,10 +145,11 @@ Set `PORT` to override the default port. All environment variables must be avail
 
 ```
 app/api/           # Server-side API routes (Next.js Route Handlers)
-  directions/      # Mapbox Directions (multi-route)
+  directions/      # Mapbox Directions (multi-route navigation)
   geocode/         # LocationIQ forward + reverse geocoding
-  waze/            # Waze alerts proxy with Redis cache
-  speedcameras/    # OSM Overpass speed camera data
+  tomtom/          # TomTom traffic incidents with Redis cache
+  waze/            # Waze alerts (police, accidents) with Redis cache
+  speedcameras/    # OSM Overpass speed camera data with Redis cache
   tiles/           # Mapbox tile proxy with Blob cache
   recording/       # GPX file storage via Vercel Blob
   feedback/        # User feedback emails via Inbound
