@@ -12,25 +12,6 @@ import {
 const REQUEST_TIMEOUT_MS = 15000; // 15 second timeout for external API
 const MAX_RESPONSE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB max response
 const MAX_QUERY_STRING_SIZE = 2048; // Max query string length
-const PER_IP_RATE_LIMIT = 15; // Max 15 requests per minute per IP
-const GLOBAL_RATE_LIMIT = 60; // Max 60 requests per minute globally
-
-// Helper: Get client IP address safely
-function getClientIP(request: NextRequest): string {
-  // Try multiple headers in order of preference
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    return forwarded.split(",")[0].trim();
-  }
-
-  const clientIp = request.headers.get("x-client-ip");
-  if (clientIp) {
-    return clientIp;
-  }
-
-  // Fallback if headers not available
-  return "unknown";
-}
 
 // Helper: Generate cache key using hash (prevents key injection)
 function getCacheKey(
@@ -47,72 +28,16 @@ function getCacheKey(
   return `${CACHE_KEYS.WAZE_ALERTS}${hash}${jamsSuffix}`;
 }
 
-// Check per-IP rate limit
-async function checkPerIPRateLimit(
-  clientIp: string
-): Promise<{ allowed: boolean; remaining: number }> {
-  const key = `${CACHE_KEYS.WAZE_RATE_LIMIT}:ip:${clientIp}`;
-
-  try {
-    const count = await redis.incr(key);
-
-    if (count === 1) {
-      await redis.expire(key, CACHE_TTL.RATE_LIMIT_WINDOW);
-    }
-
-    const remaining = Math.max(0, PER_IP_RATE_LIMIT - count);
-    return {
-      allowed: count <= PER_IP_RATE_LIMIT,
-      remaining,
-    };
-  } catch (error) {
-    // FAIL SECURE: If rate limiter fails, reject request
-    console.error("Redis per-IP rate limit check failed:", error);
-    return { allowed: false, remaining: 0 };
-  }
-}
-
-// Check global rate limit
-async function checkGlobalRateLimit(): Promise<{
-  allowed: boolean;
-  remaining: number;
-}> {
-  const key = CACHE_KEYS.WAZE_RATE_LIMIT;
-
-  try {
-    const count = await redis.incr(key);
-
-    if (count === 1) {
-      await redis.expire(key, CACHE_TTL.RATE_LIMIT_WINDOW);
-    }
-
-    const remaining = Math.max(0, GLOBAL_RATE_LIMIT - count);
-    return {
-      allowed: count <= GLOBAL_RATE_LIMIT,
-      remaining,
-    };
-  } catch (error) {
-    // FAIL SECURE: If rate limiter fails, reject request
-    console.error("Redis global rate limit check failed:", error);
-    return { allowed: false, remaining: 0 };
-  }
-}
-
 export async function GET(request: NextRequest) {
   // SECURITY: Validate API key exists
   const apiKey = process.env.OPENWEB_NINJA_API_KEY;
   if (!apiKey) {
     console.error("OPENWEB_NINJA_API_KEY environment variable not set");
-    console.error("Available env vars:", Object.keys(process.env).filter(k => k.includes('OPENWEB') || k.includes('NINJA')));
     return NextResponse.json(
       { error: "API configuration error - API key not found", alerts: [] },
       { status: 500 }
     );
   }
-  console.log("OPENWEB_NINJA_API_KEY is set, length:", apiKey.length);
-
-  // SECURITY: Get client IP for per-IP rate limiting
-  const clientIP = getClientIP(request);
 
   // SECURITY: Validate query string size
   const queryString = request.nextUrl.search;
@@ -138,52 +63,6 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // SECURITY: Check per-IP rate limit FIRST (tighter limit)
-  // const ipLimit = await checkPerIPRateLimit(clientIP);
-  // if (!ipLimit.allowed) {
-  //   const posthog = getPostHogClient();
-  //   posthog.capture({
-  //     distinctId: clientIP,
-  //     event: "waze_per_ip_rate_limited",
-  //     properties: { ip: clientIP },
-  //   });
-  //   await posthog.shutdown();
-  //
-  //   return NextResponse.json(
-  //     { error: "Rate limited", alerts: [] },
-  //     {
-  //       status: 429,
-  //       headers: {
-  //         "Retry-After": "60",
-  //         "Cache-Control": "no-store",
-  //         "X-RateLimit-Remaining": "0",
-  //       },
-  //     }
-  //   );
-  // }
-
-  // SECURITY: Check global rate limit
-  // const globalLimit = await checkGlobalRateLimit();
-  // if (!globalLimit.allowed) {
-  //   const posthog = getPostHogClient();
-  //   posthog.capture({
-  //     distinctId: "server",
-  //     event: "waze_global_rate_limited",
-  //     properties: { reason: "global_limit_exceeded" },
-  //   });
-  //   await posthog.shutdown();
-  //
-  //   return NextResponse.json(
-  //     { error: "Service temporarily unavailable", alerts: [] },
-  //     {
-  //       status: 503,
-  //       headers: {
-  //         "Retry-After": "60",
-  //         "Cache-Control": "no-store",
-  //       },
-  //     }
-  //   );
-  // }
 
   const cacheKey = getCacheKey(left, right, bottom, top, includeJams);
 
@@ -398,7 +277,7 @@ export async function GET(request: NextRequest) {
         headers: {
           "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
           "X-Cache": "MISS",
-          "X-RateLimit-Remaining": "0", // TODO: Re-enable when Redis is fixed
+          "X-RateLimit-Remaining": "0", // FIXME: Proper rate limiting requires Redis implementation
         },
       });
     } catch (fetchError) {
