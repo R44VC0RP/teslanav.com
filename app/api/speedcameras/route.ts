@@ -134,19 +134,23 @@ export async function GET(request: NextRequest) {
   const { allowed, remaining } = await checkRateLimit();
   
   if (!allowed) {
-    const posthog = getPostHogClient();
-    posthog.capture({
-      distinctId: "server",
-      event: "osm_global_rate_limited",
-      properties: {
-        bounds: { left, right, bottom, top },
-      },
-    });
-    await posthog.shutdown();
+    try {
+      const posthog = getPostHogClient();
+      posthog.capture({
+        distinctId: "server",
+        event: "osm_global_rate_limited",
+        properties: {
+          bounds: { left, right, bottom, top },
+        },
+      });
+      await posthog.shutdown();
+    } catch (error) {
+      console.error("PostHog error in rate limit check:", error);
+    }
 
     return NextResponse.json(
       { error: "Rate limited", cameras: [] },
-      { 
+      {
         status: 429,
         headers: {
           "Retry-After": "60",
@@ -177,19 +181,23 @@ export async function GET(request: NextRequest) {
     });
 
     if (response.status === 429) {
-      const posthog = getPostHogClient();
-      posthog.capture({
-        distinctId: "server",
-        event: "osm_upstream_rate_limited",
-        properties: {
-          bounds: { left, right, bottom, top },
-        },
-      });
-      await posthog.shutdown();
+      try {
+        const posthog = getPostHogClient();
+        posthog.capture({
+          distinctId: "server",
+          event: "osm_upstream_rate_limited",
+          properties: {
+            bounds: { left, right, bottom, top },
+          },
+        });
+        await posthog.shutdown();
+      } catch (error) {
+        console.error("PostHog error in upstream rate limit check:", error);
+      }
 
       return NextResponse.json(
         { error: "Rate limited", cameras: [] },
-        { 
+        {
           status: 429,
           headers: {
             "Retry-After": "60",
@@ -239,16 +247,20 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Overpass API error:", error);
 
-    const posthog = getPostHogClient();
-    posthog.capture({
-      distinctId: "server",
-      event: "osm_api_error",
-      properties: {
-        error_message: error instanceof Error ? error.message : "Unknown error",
-        bounds: { left, right, bottom, top },
-      },
-    });
-    await posthog.shutdown();
+    try {
+      const posthog = getPostHogClient();
+      posthog.capture({
+        distinctId: "server",
+        event: "osm_api_error",
+        properties: {
+          error_message: error instanceof Error ? error.message : "Unknown error",
+          bounds: { left, right, bottom, top },
+        },
+      });
+      await posthog.shutdown();
+    } catch (posthogError) {
+      console.error("PostHog error in error handler:", posthogError);
+    }
 
     // Try to return stale cached data as fallback
     try {
