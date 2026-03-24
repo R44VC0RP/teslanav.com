@@ -272,14 +272,23 @@ export default function RootLayout({
             <Script
               src="https://cdn.jsdelivr.net/npm/eruda@3"
               strategy="afterInteractive"
-              onLoad={() => {
-                const isEnabled =
-                  typeof window !== 'undefined' &&
-                  (new URLSearchParams(window.location.search).get('debug') === 'true' ||
-                   localStorage.getItem('eruda-enabled') === 'true');
-                if (isEnabled && typeof (window as any).eruda !== 'undefined') {
-                  (window as any).eruda.init();
-                }
+            />
+            <script
+              dangerouslySetInnerHTML={{
+                __html: `
+                  (function() {
+                    const isEnabled = new URLSearchParams(window.location.search).get('debug') === 'true' || localStorage.getItem('eruda-enabled') === 'true';
+                    if (isEnabled) {
+                      const checkEruda = setInterval(() => {
+                        if (typeof window.eruda !== 'undefined') {
+                          window.eruda.init();
+                          clearInterval(checkEruda);
+                        }
+                      }, 100);
+                      setTimeout(() => clearInterval(checkEruda), 5000);
+                    }
+                  })();
+                `,
               }}
             />
             <Script
