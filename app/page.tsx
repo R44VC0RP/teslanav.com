@@ -5,6 +5,8 @@ import { Map, type MapRef } from "@/components/Map";
 import { SettingsModal } from "@/components/SettingsModal";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { ChangelogModal } from "@/components/ChangelogModal";
+import { AuthModal } from "@/components/AuthModal";
+import { LeaderboardModal } from "@/components/LeaderboardModal";
 import { NavigateSearch } from "@/components/NavigateSearch";
 import { RouteSelector } from "@/components/RouteSelector";
 import { useGeolocation } from "@/hooks/useGeolocation";
@@ -14,6 +16,7 @@ import { useTrafficData } from "@/hooks/useTrafficData";
 import { PROJECT_SHUTDOWN_ENABLED, PROJECT_SHUTDOWN_MESSAGE } from "@/lib/shutdown";
 import type { MapBounds } from "@/types/waze";
 import type { RouteData, RoutesResponse } from "@/types/route";
+import type { Supercharger } from "@/types/supercharger";
 import Image from "next/image";
 import posthog from "posthog-js";
 import { ShieldExclamationIcon, ExclamationTriangleIcon, NoSymbolIcon } from "@heroicons/react/24/solid";
@@ -82,8 +85,12 @@ function LiveHome() {
   const [isCentered, setIsCentered] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
+  const [selectedSupercharger, setSelectedSupercharger] = useState<Supercharger | null>(null);
   const [showWazeAlerts, setShowWazeAlerts] = useState(true);
   const [showSpeedCameras, setShowSpeedCameras] = useState(true);
+  const [showSuperchargers, setShowSuperchargers] = useState(true);
   const [showTraffic, setShowTraffic] = useState(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("teslanav-traffic");
@@ -545,6 +552,14 @@ function LiveHome() {
     setShowTraffic(value);
     if (typeof window !== "undefined") {
       localStorage.setItem("teslanav-traffic", value.toString());
+    }
+  }, []);
+
+  // Save supercharger preference to localStorage
+  const handleToggleSuperchargers = useCallback((value: boolean) => {
+    setShowSuperchargers(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("teslanav-superchargers", value.toString());
     }
   }, []);
 
@@ -1562,6 +1577,8 @@ function LiveHome() {
         onToggleSpeedCameras={setShowSpeedCameras}
         showTraffic={showTraffic}
         onToggleTraffic={handleToggleTraffic}
+        showSuperchargers={showSuperchargers}
+        onToggleSuperchargers={handleToggleSuperchargers}
         useSatellite={useSatellite}
         onToggleSatellite={handleToggleSatellite}
         showAvatarPulse={showAvatarPulse}
@@ -1582,6 +1599,24 @@ function LiveHome() {
         onClose={() => setShowFeedback(false)}
         isDarkMode={effectiveDarkMode}
       />
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        darkMode={effectiveDarkMode}
+      />
+
+      {/* Leaderboard Modal */}
+      {selectedSupercharger && (
+        <LeaderboardModal
+          isOpen={showLeaderboardModal}
+          onClose={() => setShowLeaderboardModal(false)}
+          superchargerId={selectedSupercharger.id}
+          superchargerName={selectedSupercharger.name}
+          darkMode={effectiveDarkMode}
+        />
+      )}
 
       {/* Changelog Modal - Shows once per version */}
       <ChangelogModal isDarkMode={effectiveDarkMode} />

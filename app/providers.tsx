@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { AuthProvider } from "@/components/AuthProvider";
 
 // Register service worker for map tile caching
 function useServiceWorker() {
@@ -10,7 +11,7 @@ function useServiceWorker() {
         .register("/sw.js")
         .then((registration) => {
           console.log("[TeslaNav] Service Worker registered for tile caching");
-          
+
           // Check for updates periodically
           setInterval(() => {
             registration.update();
@@ -26,6 +27,6 @@ function useServiceWorker() {
 export function Providers({ children }: { children: React.ReactNode }) {
   // Register service worker for tile caching
   useServiceWorker();
-  
-  return <>{children}</>;
+
+  return <AuthProvider>{children}</AuthProvider>;
 }

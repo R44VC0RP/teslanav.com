@@ -14,6 +14,8 @@ interface SettingsModalProps {
   onToggleSpeedCameras: (value: boolean) => void;
   showTraffic: boolean;
   onToggleTraffic: (value: boolean) => void;
+  showSuperchargers?: boolean;
+  onToggleSuperchargers?: (value: boolean) => void;
   useSatellite: boolean;
   onToggleSatellite: (value: boolean) => void;
   showAvatarPulse: boolean;
@@ -40,6 +42,8 @@ export function SettingsModal({
   onToggleSpeedCameras,
   showTraffic,
   onToggleTraffic,
+  showSuperchargers = true,
+  onToggleSuperchargers,
   useSatellite,
   onToggleSatellite,
   showAvatarPulse,
@@ -288,6 +292,33 @@ export function SettingsModal({
                       // Track traffic layer toggle
                       posthog.capture("traffic_layer_toggled", {
                         traffic_enabled: value,
+                      });
+                    }}
+                    isDarkMode={isDarkMode}
+                  />
+                </div>
+
+                {/* Superchargers Toggle */}
+                <div className={`
+                  flex items-center justify-between p-5 rounded-xl
+                  ${isDarkMode ? "bg-white/5" : "bg-black/5"}
+                `}>
+                  <div className="flex items-center gap-4">
+                    <span className="text-3xl">⚡</span>
+                    <div>
+                      <div className="text-lg font-medium">Tesla Superchargers</div>
+                      <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                        Show nearby superchargers and check in for leaderboards
+                      </div>
+                    </div>
+                  </div>
+                  <Toggle
+                    enabled={showSuperchargers}
+                    onToggle={(value) => {
+                      onToggleSuperchargers?.(value);
+                      // Track superchargers toggle
+                      posthog.capture("superchargers_toggled", {
+                        superchargers_enabled: value,
                       });
                     }}
                     isDarkMode={isDarkMode}
