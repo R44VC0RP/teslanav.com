@@ -10,6 +10,7 @@ import { RouteSelector } from "@/components/RouteSelector";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
 import { useSpeedCameras } from "@/hooks/useSpeedCameras";
+import { useTrafficData } from "@/hooks/useTrafficData";
 import { PROJECT_SHUTDOWN_ENABLED, PROJECT_SHUTDOWN_MESSAGE } from "@/lib/shutdown";
 import type { MapBounds } from "@/types/waze";
 import type { RouteData, RoutesResponse } from "@/types/route";
@@ -178,6 +179,7 @@ function LiveHome() {
   const speed = isSimulating ? 25 : realSpeed;
   const { alerts, loading: alertsLoading, cachedTileBounds } = useWazeAlerts({ bounds });
   const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
+  const { incidents: trafficIncidents, segments: trafficSegments } = useTrafficData({ bounds });
 
   // Track last route origin to detect significant movement
   const lastRouteOriginRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -951,6 +953,8 @@ function LiveHome() {
         isDarkMode={effectiveDarkMode}
         alerts={filteredAlerts}
         speedCameras={showSpeedCameras ? cameras : []}
+        trafficIncidents={trafficIncidents}
+        trafficSegments={trafficSegments}
         onBoundsChange={handleBoundsChange}
         onCenteredChange={handleCenteredChange}
         onLongPress={handleMapLongPress}

@@ -6,6 +6,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import type { WazeAlert, MapBounds } from "@/types/waze";
 import type { SpeedCamera } from "@/types/speedcamera";
 import type { RouteData } from "@/types/route";
+import type { TrafficIncident, TrafficSegment } from "@/types/traffic";
 
 import posthog from "posthog-js";
 
@@ -17,6 +18,8 @@ interface MapProps {
   isDarkMode?: boolean;
   alerts?: WazeAlert[];
   speedCameras?: SpeedCamera[];
+  trafficIncidents?: TrafficIncident[];
+  trafficSegments?: TrafficSegment[];
   onBoundsChange?: (bounds: MapBounds) => void;
   onCenteredChange?: (isCentered: boolean) => void;
   onLongPress?: (lng: number, lat: number, screenX: number, screenY: number) => void;
@@ -24,9 +27,9 @@ interface MapProps {
   route?: RouteData | null; // Legacy single route support
   routes?: RouteData[]; // Multiple routes for selection
   selectedRouteIndex?: number; // Which route is selected (0 = first/fastest)
-  userLocation?: { 
-    latitude: number; 
-    longitude: number; 
+  userLocation?: {
+    latitude: number;
+    longitude: number;
     heading?: number | null;
     effectiveHeading?: number | null;
     speed?: number | null; // m/s
@@ -60,6 +63,16 @@ const ALERT_COLORS: Record<string, string> = {
   HAZARD: "#f59e0b", // amber
   ROAD_CLOSED: "#6b7280", // gray
   JAM: "#8b5cf6", // purple
+};
+
+// Traffic incident colors (TomTom)
+const INCIDENT_COLORS: Record<string, string> = {
+  ACCIDENT: "#ef4444", // red
+  JAM: "#f97316", // orange
+  ROAD_CLOSED: "#6b7280", // gray
+  CONSTRUCTION: "#a78bfa", // purple
+  DISABLED_VEHICLE: "#fbbf24", // amber
+  OTHER: "#9ca3af", // gray
 };
 
 const ALERT_ICONS: Record<string, string> = {
@@ -230,6 +243,8 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     isDarkMode = false,
     alerts = [],
     speedCameras = [],
+    trafficIncidents = [],
+    trafficSegments = [],
     onBoundsChange,
     onCenteredChange,
     onLongPress,
@@ -254,6 +269,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   // Use Maps for incremental marker updates (key = unique ID)
   const markersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
   const cameraMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
+  const incidentMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const userMarkerElRef = useRef<HTMLDivElement | null>(null);
   const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -1951,6 +1967,120 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       }
     }
   }, [speedCameras, mapLoaded, isDarkMode]);
+
+  // Update traffic incident markers
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    const popupBg = isDarkMode ? "#1a1a1a" : "white";
+    const popupText = isDarkMode ? "#e5e5e5" : "#374151";
+    const popupSubtext = isDarkMode ? "#9ca3af" : "#6b7280";
+
+    const newIncidentIds = new Set<string>();
+
+    trafficIncidents.forEach((incident) => {
+      const incidentId = incident.id;
+      newIncidentIds.add(incidentId);
+
+      // Check if marker already exists
+      const existingMarker = incidentMarkersRef.current.get(incidentId);
+
+      if (existingMarker) {
+        const currentLngLat = existingMarker.getLngLat();
+        if (
+          Math.abs(currentLngLat.lng - incident.longitude) > 0.00001 ||
+          Math.abs(currentLngLat.lat - incident.latitude) > 0.00001
+        ) {
+          existingMarker.setLngLat([incident.longitude, incident.latitude]);
+        }
+        return; // Keep existing marker
+      }
+
+      // Create new marker
+      const el = document.createElement("div");
+      el.className = "incident-marker";
+
+      const color = INCIDENT_COLORS[incident.type] || INCIDENT_COLORS.OTHER;
+      const severityEmoji = incident.severity === "CRITICAL" ? "🚨" : incident.severity === "MAJOR" ? "⚠️" : "📍";
+
+      el.innerHTML = `
+        <div class="incident-pin" style="
+          position: relative;
+          cursor: pointer;
+          transition: transform 0.15s ease-out;
+        ">
+          <div class="incident-pin-body" style="
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: ${color};
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            border: 2px solid white;
+          ">
+            ${severityEmoji}
+          </div>
+        </div>
+      `;
+
+      // Build popup content
+      const delayText = incident.delay ? ` (+${Math.round(incident.delay / 60)} min delay)` : "";
+      const typeLabel = incident.type.replace(/_/g, " ");
+
+      const popupContent = `
+        <div class="traffic-popup" style="background: ${popupBg}; color: ${popupText};">
+          <div class="traffic-popup-header" style="color: ${color}; margin-bottom: 4px; font-weight: 600;">
+            ${incident.type}
+          </div>
+          <div class="traffic-popup-description" style="color: ${popupText}; font-size: 13px; margin-bottom: 4px;">
+            ${incident.description}
+          </div>
+          <div class="traffic-popup-severity" style="color: ${popupSubtext}; font-size: 11px;">
+            Severity: ${incident.severity}${delayText}
+          </div>
+          <div class="traffic-popup-source" style="color: ${popupSubtext}; font-size: 10px; margin-top: 6px;">
+            Source: TomTom Traffic
+          </div>
+        </div>
+      `;
+
+      const popup = new mapboxgl.Popup({
+        offset: 20,
+        closeButton: false,
+        maxWidth: "220px",
+        className: `traffic-popup-container ${isDarkMode ? "dark" : ""}`,
+      }).setHTML(popupContent);
+
+      const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
+        .setLngLat([incident.longitude, incident.latitude])
+        .setPopup(popup)
+        .addTo(map.current!);
+
+      incidentMarkersRef.current.set(incidentId, marker);
+
+      // Hover effect
+      el.addEventListener("mouseenter", () => {
+        const pinEl = el.querySelector(".incident-pin") as HTMLElement;
+        if (pinEl) pinEl.style.transform = "scale(1.15) translateY(-3px)";
+      });
+
+      el.addEventListener("mouseleave", () => {
+        const pinEl = el.querySelector(".incident-pin") as HTMLElement;
+        if (pinEl) pinEl.style.transform = "scale(1)";
+      });
+    });
+
+    // Remove markers that no longer exist
+    for (const [id, marker] of incidentMarkersRef.current) {
+      if (!newIncidentIds.has(id)) {
+        marker.remove();
+        incidentMarkersRef.current.delete(id);
+      }
+    }
+  }, [trafficIncidents, mapLoaded, isDarkMode]);
 
   // Pin marker for long-press location (using Waze origin marker style)
   useEffect(() => {

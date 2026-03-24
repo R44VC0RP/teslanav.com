@@ -12,6 +12,8 @@ export const CACHE_KEYS = {
   WAZE_RATE_LIMIT: "waze:ratelimit",
   OSM_CAMERAS: "osm:cameras:",
   OSM_RATE_LIMIT: "osm:ratelimit",
+  TOMTOM_TRAFFIC: "tomtom:traffic:",
+  OPENTRAFFIC_SEGMENTS: "opentraffic:segments:",
   REVERSE_GEOCODE: "geocode:reverse:", // Format: geocode:reverse:{lat},{lng}
   // API Usage tracking (monthly)
   API_USAGE: "api:usage:", // Format: api:usage:{api_name}:{YYYY-MM}
@@ -26,6 +28,8 @@ export const CACHE_TTL = {
   WAZE_ALERTS: 60, // 60 seconds for Waze alerts
   RATE_LIMIT_WINDOW: 60, // 1 minute window for rate limiting
   OSM_CAMERAS: 3600, // 1 hour for OSM cameras (they don't change often)
+  TOMTOM_TRAFFIC: 120, // 2 minutes for traffic incidents (real-time data)
+  OPENTRAFFIC_SEGMENTS: 3600, // 1 hour for traffic segments (historical data)
   REVERSE_GEOCODE: 86400, // 24 hours for reverse geocode (locations don't change)
   API_USAGE: 86400 * 35, // 35 days for monthly usage tracking
   API_USAGE_DAILY: 86400 * 7, // 7 days for daily usage
