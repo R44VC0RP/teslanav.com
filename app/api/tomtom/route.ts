@@ -82,7 +82,6 @@ export async function GET(request: NextRequest) {
     const url = new URL("https://api.tomtom.com/traffic/services/4/incidentDetails");
     url.searchParams.set("bbox", bbox);
     url.searchParams.set("key", apiKey);
-    url.searchParams.set("detailedObjectTypeVersion", "xml");
     url.searchParams.set("language", "en");
 
     console.log("[TomTom Traffic] Fetching incidents");
