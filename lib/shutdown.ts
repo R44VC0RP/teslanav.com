@@ -2,7 +2,7 @@ const DISABLED_VALUES = new Set(["0", "false", "off", "no"]);
 
 function parseShutdownFlag(value: string | undefined): boolean {
   if (!value) {
-    return true;
+    return false;
   }
 
   return !DISABLED_VALUES.has(value.trim().toLowerCase());
