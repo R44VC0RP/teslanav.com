@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Map, type MapRef } from "@/components/Map";
 import { SettingsModal } from "@/components/SettingsModal";
 import { FeedbackModal } from "@/components/FeedbackModal";
+import { WelcomeBackFanfare } from "@/components/WelcomeBackFanfare";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useSolarTheme } from "@/hooks/useSolarTheme";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
@@ -847,6 +848,8 @@ export default function Home() {
         onClose={() => setShowFeedback(false)}
         isDarkMode={isDarkMode}
       />
+
+      <WelcomeBackFanfare />
 
       {/* Global styles for police alert animations */}
       <style jsx global>{`
