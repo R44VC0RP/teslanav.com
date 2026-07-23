@@ -103,11 +103,29 @@ function createDatabase(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_analytics_daily_day
       ON analytics_daily_visitors (day);
 
+    CREATE TABLE IF NOT EXISTS analytics_hourly_visitors (
+      hour TEXT NOT NULL,
+      visitor_hash TEXT NOT NULL,
+      sessions INTEGER NOT NULL DEFAULT 0,
+      pageviews INTEGER NOT NULL DEFAULT 0,
+      active_seconds INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (hour, visitor_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_analytics_hourly_hour
+      ON analytics_hourly_visitors (hour);
+
     CREATE TABLE IF NOT EXISTS analytics_pageviews_daily (
       day TEXT NOT NULL,
       path TEXT NOT NULL,
       count INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (day, path)
+    );
+
+    CREATE TABLE IF NOT EXISTS analytics_pageviews_hourly (
+      hour TEXT NOT NULL,
+      path TEXT NOT NULL,
+      count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (hour, path)
     );
 
     CREATE TABLE IF NOT EXISTS analytics_events_daily (
@@ -116,6 +134,14 @@ function createDatabase(): Database.Database {
       event_value TEXT NOT NULL DEFAULT '',
       count INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (day, event_name, event_value)
+    );
+
+    CREATE TABLE IF NOT EXISTS analytics_events_hourly (
+      hour TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      event_value TEXT NOT NULL DEFAULT '',
+      count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (hour, event_name, event_value)
     );
 
     CREATE TABLE IF NOT EXISTS analytics_requests_hourly (
@@ -135,6 +161,16 @@ function createDatabase(): Database.Database {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_app_logs_created_at ON app_logs (created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS analytics_digest_deliveries (
+      report_day TEXT NOT NULL,
+      recipient TEXT NOT NULL,
+      status TEXT NOT NULL,
+      attempted_at INTEGER NOT NULL,
+      sent_at INTEGER,
+      error TEXT,
+      PRIMARY KEY (report_day, recipient)
+    );
   `);
   return db;
 }
@@ -392,6 +428,7 @@ function recordAnalyticsRows(input: AnalyticsRecordInput): void {
     const db = getDb();
     const now = Date.now();
     const day = utcDay(now);
+    const hour = utcHour(now);
     const existing = db
       .prepare(
         `SELECT last_heartbeat_at AS lastHeartbeatAt
@@ -485,12 +522,27 @@ function recordAnalyticsRows(input: AnalyticsRecordInput): void {
         active_seconds = analytics_daily_visitors.active_seconds + excluded.active_seconds`
     ).run(day, input.visitorHash, isNewSession ? 1 : 0, pageviews, activeSeconds);
 
+    db.prepare(
+      `INSERT INTO analytics_hourly_visitors (
+        hour, visitor_hash, sessions, pageviews, active_seconds
+      ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(hour, visitor_hash) DO UPDATE SET
+        sessions = analytics_hourly_visitors.sessions + excluded.sessions,
+        pageviews = analytics_hourly_visitors.pageviews + excluded.pageviews,
+        active_seconds = analytics_hourly_visitors.active_seconds + excluded.active_seconds`
+    ).run(hour, input.visitorHash, isNewSession ? 1 : 0, pageviews, activeSeconds);
+
     if (pageviews) {
       db.prepare(
         `INSERT INTO analytics_pageviews_daily (day, path, count)
          VALUES (?, ?, 1)
          ON CONFLICT(day, path) DO UPDATE SET count = count + 1`
       ).run(day, input.path);
+      db.prepare(
+        `INSERT INTO analytics_pageviews_hourly (hour, path, count)
+         VALUES (?, ?, 1)
+         ON CONFLICT(hour, path) DO UPDATE SET count = count + 1`
+      ).run(hour, input.path);
     }
 
     if (input.type === "event" && input.eventName) {
@@ -499,6 +551,11 @@ function recordAnalyticsRows(input: AnalyticsRecordInput): void {
          VALUES (?, ?, ?, 1)
          ON CONFLICT(day, event_name, event_value) DO UPDATE SET count = count + 1`
       ).run(day, input.eventName, input.eventValue ?? "");
+      db.prepare(
+        `INSERT INTO analytics_events_hourly (hour, event_name, event_value, count)
+         VALUES (?, ?, ?, 1)
+         ON CONFLICT(hour, event_name, event_value) DO UPDATE SET count = count + 1`
+      ).run(hour, input.eventName, input.eventValue ?? "");
     }
 }
 
@@ -521,8 +578,11 @@ function maybePruneAnalytics(): void {
     db.prepare(`DELETE FROM analytics_sessions WHERE last_seen_at < ?`).run(cutoffTimestamp);
     db.prepare(`DELETE FROM analytics_visitors WHERE last_seen_at < ?`).run(cutoffTimestamp);
     db.prepare(`DELETE FROM analytics_daily_visitors WHERE day < ?`).run(cutoffDay);
+    db.prepare(`DELETE FROM analytics_hourly_visitors WHERE hour < ?`).run(cutoffHour);
     db.prepare(`DELETE FROM analytics_pageviews_daily WHERE day < ?`).run(cutoffDay);
+    db.prepare(`DELETE FROM analytics_pageviews_hourly WHERE hour < ?`).run(cutoffHour);
     db.prepare(`DELETE FROM analytics_events_daily WHERE day < ?`).run(cutoffDay);
+    db.prepare(`DELETE FROM analytics_events_hourly WHERE hour < ?`).run(cutoffHour);
     db.prepare(`DELETE FROM analytics_requests_hourly WHERE hour < ?`).run(cutoffHour);
   })();
 }

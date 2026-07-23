@@ -229,6 +229,9 @@ ADMIN_API_KEY       # Optional Bearer token for /api/admin/* routes
 ANALYTICS_HASH_SECRET # Optional deployment-specific HMAC secret for anonymous analytics IDs
 INBOUND_API_KEY     # Server-only Inbound v2 API key for suggestions
 SUGGESTION_TO_EMAIL # Suggestion destination (default me@teslanav.com)
+ANALYTICS_DIGEST_TO # Daily analytics recipient; empty disables the scheduler
+ANALYTICS_DIGEST_TIMEZONE # IANA timezone for report day and send hour
+ANALYTICS_DIGEST_HOUR # Local send hour, 0-23 (default 9)
 PUBLIC_BASE_URL     # Public origin used for metadata/social URLs
 WAZE_RELAY_SECRET   # Shared secret for /api/waze/relay (empty = relay disabled)
 ```
@@ -246,6 +249,7 @@ WAZE_RELAY_SECRET   # Shared secret for /api/waze/relay (empty = relay disabled)
 14. **Analytics privacy**: `components/Analytics.tsx`, `/api/analytics`, and the request `proxy.ts` are first-party only. IDs are HMAC-hashed; never store IPs, exact coordinates, raw user agents, query strings, or user-provided content. Honor DNT and `teslanav-analytics-optout`; exclude admin/static traffic. Feature event names/values are allowlisted to avoid high-cardinality or sensitive data. Raw behavioral events are not retained — only aggregate daily counters and coarse session rows.
 15. **Suggestions**: `components/SuggestionBox.tsx` submits to `/api/suggestions`. Keep `INBOUND_API_KEY` server-only. Every suggestion is persisted in SQLite before email, keyed by a client UUID for idempotency. Preserve same-origin checks, honeypot, timing check, 10–2,000 character limit, escaped email HTML, Redis hashed-IP/global limits, bounded email timeout, and failure logging. Never include requester IP or location in suggestion emails.
 16. **Deployment**: use `deploy.sh`, not ad-hoc rsync/Compose commands. It reads gitignored `.env.exe-dev`, locks concurrent deploys, runs local checks, creates an online SQLite backup, tags the current image for rollback, syncs/builds remotely, waits for Docker health/public HTTPS, automatically rolls back failures, and bounds retained backups/images.
+17. **Daily analytics digest**: `scripts/daily-digest-scheduler.mjs` calls the protected `/api/admin/daily-digest` route after the configured local hour. Delivery reservations in SQLite and Inbound idempotency prevent duplicates; failures remain retryable and are recorded in app logs. Keep recipient/API credentials server-only. Hourly visitor/page/event tables exist to produce DST-safe local-day reports without adding raw analytics events or personal data.
 8. **RT primary path**: `lib/waze-rt.ts` is read-only. It pins protocol 234 / app 5.17.1.0, persists one stable anonymous credential/device per region in SQLite, serializes all commands through one refresh, handles in-band `504 Retry`, merges `AddAlertAction` + `RmAlert` deltas by UUID, and refuses to serve snapshots older than five minutes. Do not add reporting, voting, chat, or other write commands. If Waze returns `APP_VERSION_NOT_SUPPORTED`, stop and re-verify constants against a newer client rather than guessing.
 9. **Optional GeoRSS path**: georss needs a hostname-bound reCAPTCHA token plus the minting browser's httpOnly cookies. The userscript (`scripts/waze-relay.user.js`, served at `/waze-relay.user.js`) performs the fetch in-page and POSTs alert JSON for optional enrichment. RT remains functional without it.
 10. **WazeAlert IDs**: the API-facing shape uses georss-compatible `id` (`alert-<numeric>/<uuid>`). Internally RT state is keyed by the bare UUID; do not use the numeric ID for delta merging.

@@ -11,6 +11,10 @@ services:
       ANALYTICS_HASH_SECRET: ${ANALYTICS_HASH_SECRET:-}
       INBOUND_API_KEY: ${INBOUND_API_KEY:-}
       SUGGESTION_TO_EMAIL: ${SUGGESTION_TO_EMAIL:-me@teslanav.com}
+      ANALYTICS_DIGEST_TO: ${ANALYTICS_DIGEST_TO:-}
+      ANALYTICS_DIGEST_FROM: ${ANALYTICS_DIGEST_FROM:-TeslaNav Analytics <analytics@teslanav.com>}
+      ANALYTICS_DIGEST_TIMEZONE: ${ANALYTICS_DIGEST_TIMEZONE:-America/New_York}
+      ANALYTICS_DIGEST_HOUR: ${ANALYTICS_DIGEST_HOUR:-9}
       # Required for live Waze alerts: shared secret with the relay userscript
       WAZE_RELAY_SECRET: ${WAZE_RELAY_SECRET:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}

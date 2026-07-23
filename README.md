@@ -81,6 +81,10 @@ ADMIN_API_KEY=                     # Bearer key for /api/admin/* (empty = no aut
 ANALYTICS_HASH_SECRET=             # Optional HMAC secret for anonymous visitor/session IDs
 INBOUND_API_KEY=                   # Server-only key for suggestion email delivery
 SUGGESTION_TO_EMAIL=me@teslanav.com # Destination for Settings suggestions
+ANALYTICS_DIGEST_TO=             # Daily analytics recipient (empty = disabled)
+ANALYTICS_DIGEST_FROM=TeslaNav Analytics <analytics@teslanav.com>
+ANALYTICS_DIGEST_TIMEZONE=America/New_York
+ANALYTICS_DIGEST_HOUR=9
 PUBLIC_BASE_URL=http://localhost:3000 # Public origin for metadata/social URLs
 WAZE_RELAY_SECRET=                 # Shared secret for the alert relay userscript (empty = relay disabled)
 ```
@@ -158,6 +162,8 @@ Circular Std is served locally as WOFF2 through `next/font/local`; no font CDN i
 TeslaNav has a local analytics pipeline backed by SQLite — no analytics provider, cookies, or third-party tracking script. It records anonymous DAU/WAU/MAU, sessions, pageviews, visible engaged time, coarse device/Tesla and screen buckets, timezone/language, referrer host, map mode/style interactions, police-alert interactions, sponsor clicks, and aggregated application request counts. `/admin` shows 14-day activity, engagement, device mix, top pages/referrers/events/routes, process memory/uptime, RT health, feedback, and a bounded operational log.
 
 Visitor and session UUIDs are generated in `localStorage`/`sessionStorage` and HMAC-hashed before SQLite storage. Exact location, IP address, complete user agent, query strings, and page content are not stored. Obvious bots, `/admin` usage, and static assets are excluded. `Do Not Track` is honored; users can also opt out with `localStorage.setItem("teslanav-analytics-optout", "true")`. Set `ANALYTICS_HASH_SECRET` to a deployment-specific random secret before public use.
+
+When `ANALYTICS_DIGEST_TO` is configured, the Docker container sends a daily analytics overview through Inbound at `ANALYTICS_DIGEST_HOUR` in `ANALYTICS_DIGEST_TIMEZONE`. The report covers the previous local calendar day and includes visitors, sessions, pageviews, engaged time, day-over-day changes, retention, referrers, devices, top pages/events/routes, map modes, and a 14-day trend. Delivery is persisted and idempotent, so container restarts cannot duplicate a scheduled report. Hourly anonymous aggregates provide timezone-accurate reporting after deployment; older dates are clearly identified as UTC daily fallbacks.
 
 ### Suggestion box
 

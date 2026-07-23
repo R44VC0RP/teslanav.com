@@ -14,5 +14,9 @@ redis-server \
 # Ensure the SQLite data directory exists (mounted volume in Docker)
 mkdir -p "$(dirname "${DATABASE_PATH:-/data/teslanav.db}")"
 
+if [ -n "${ANALYTICS_DIGEST_TO:-}" ] && [ -n "${ADMIN_API_KEY:-}" ]; then
+  node scripts/daily-digest-scheduler.mjs &
+fi
+
 # Start the Next.js standalone server
 exec node server.js

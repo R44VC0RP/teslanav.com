@@ -2,7 +2,8 @@
 node_modules
 .next
 data
-scripts
+scripts/*
+!scripts/daily-digest-scheduler.mjs
 ideas.md
 *.log
 .env

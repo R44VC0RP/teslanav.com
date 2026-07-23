@@ -44,6 +44,7 @@ RUN npm install --omit=dev --no-save better-sqlite3@^12 \
   && npm cache clean --force
 
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
+COPY scripts/daily-digest-scheduler.mjs ./scripts/daily-digest-scheduler.mjs
 RUN chmod +x docker-entrypoint.sh && mkdir -p /data
 
 EXPOSE 3000
