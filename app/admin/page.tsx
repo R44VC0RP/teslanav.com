@@ -51,6 +51,15 @@ interface UsageData {
       pageviews: number;
       activeSeconds: number;
     }>;
+    retention: {
+      cohortWindowDays: number;
+      rows: Array<{
+        dayOffset: number;
+        eligibleVisitors: number;
+        returningVisitors: number;
+        percentage: number | null;
+      }>;
+    };
     devices: Array<{ value: string; count: number }>;
     topPages: Array<{ value: string; count: number }>;
     topReferrers: Array<{ value: string; count: number }>;
@@ -212,6 +221,23 @@ export default function AdminPage() {
                 <span className="text-xs text-neutral-500">UTC</span>
               </div>
               <DailyBars rows={data.analytics.daily} />
+            </section>
+
+            {/* Retention */}
+            <section className="p-5 rounded-xl bg-white/5 border border-white/10">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+                <div>
+                  <h2 className="text-xl font-semibold">Visitor retention</h2>
+                  <p className="text-sm text-neutral-500 mt-1">
+                    Exact UTC-day return · first seen in the last {data.analytics.retention.cohortWindowDays} days
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-neutral-400">
+                  <span className="size-2 rounded-full bg-blue-400" />
+                  Percent returning
+                </div>
+              </div>
+              <RetentionChart rows={data.analytics.retention.rows} />
             </section>
 
             {/* Analytics breakdowns */}
@@ -393,6 +419,150 @@ function DailyBars({ rows }: { rows: UsageData["analytics"]["daily"] }) {
   );
 }
 
+function RetentionChart({
+  rows,
+}: {
+  rows: UsageData["analytics"]["retention"]["rows"];
+}) {
+  const width = 900;
+  const height = 260;
+  const margin = { top: 18, right: 18, bottom: 36, left: 44 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const maxDay = Math.max(1, ...rows.map((row) => row.dayOffset));
+  const plottedRows = rows.filter(
+    (row): row is typeof row & { percentage: number } => row.percentage !== null
+  );
+  const x = (dayOffset: number) => margin.left + (dayOffset / maxDay) * plotWidth;
+  const y = (percentage: number) => margin.top + (1 - percentage / 100) * plotHeight;
+  const linePath = plottedRows
+    .map((row, index) => `${index === 0 ? "M" : "L"} ${x(row.dayOffset)} ${y(row.percentage)}`)
+    .join(" ");
+  const areaPath = plottedRows.length
+    ? `${linePath} L ${x(plottedRows.at(-1)!.dayOffset)} ${margin.top + plotHeight} L ${x(plottedRows[0].dayOffset)} ${margin.top + plotHeight} Z`
+    : "";
+  const benchmarkDays = [1, 7, 14, 30];
+  const axisDays = [0, 1, 3, 7, 14, 21, 30].filter((day) => day <= maxDay);
+
+  if (!plottedRows.length) {
+    return (
+      <div className="h-56 grid place-items-center rounded-lg bg-white/[0.02] text-sm text-neutral-500">
+        Retention appears after the first visitor is recorded.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        {benchmarkDays.map((day) => {
+          const row = rows.find((candidate) => candidate.dayOffset === day);
+          return (
+            <div key={day} className="rounded-lg bg-white/[0.04] px-3 py-2.5">
+              <div className="text-lg font-semibold tabular-nums">
+                {row?.percentage === null || row?.percentage === undefined
+                  ? "—"
+                  : formatPercentage(row.percentage)}
+              </div>
+              <div className="text-xs text-neutral-500">Day {day}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="overflow-x-auto">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="min-w-[720px] w-full h-auto"
+          role="img"
+          aria-label="Visitor retention by days since first visit"
+        >
+          <defs>
+            <linearGradient id="retention-area" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.3" />
+              <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.015" />
+            </linearGradient>
+          </defs>
+
+          {[0, 25, 50, 75, 100].map((percentage) => (
+            <g key={percentage}>
+              <line
+                x1={margin.left}
+                x2={width - margin.right}
+                y1={y(percentage)}
+                y2={y(percentage)}
+                stroke="rgba(255,255,255,0.08)"
+              />
+              <text
+                x={margin.left - 9}
+                y={y(percentage) + 4}
+                textAnchor="end"
+                fill="#737373"
+                fontSize="10"
+              >
+                {percentage}%
+              </text>
+            </g>
+          ))}
+
+          {axisDays.map((day) => (
+            <text
+              key={day}
+              x={x(day)}
+              y={height - 10}
+              textAnchor="middle"
+              fill="#737373"
+              fontSize="10"
+            >
+              D{day}
+            </text>
+          ))}
+
+          {areaPath && <path d={areaPath} fill="url(#retention-area)" />}
+          {linePath && (
+            <path
+              d={linePath}
+              fill="none"
+              stroke="#60a5fa"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+
+          {plottedRows.map((row) => (
+            <g key={row.dayOffset}>
+              <circle
+                cx={x(row.dayOffset)}
+                cy={y(row.percentage)}
+                r="10"
+                fill="transparent"
+              >
+                <title>
+                  {`Day ${row.dayOffset}: ${formatPercentage(row.percentage)} · ${row.returningVisitors} of ${row.eligibleVisitors} eligible visitors`}
+                </title>
+              </circle>
+              <circle
+                cx={x(row.dayOffset)}
+                cy={y(row.percentage)}
+                r={benchmarkDays.includes(row.dayOffset) || row.dayOffset === 0 ? 3.5 : 2}
+                fill="#93c5fd"
+                stroke="#171717"
+                strokeWidth="1.5"
+                pointerEvents="none"
+              />
+            </g>
+          ))}
+        </svg>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-neutral-500">
+        Each point is the share of eligible first-time visitors active on that exact day after their first visit.
+        Recent visitors are excluded from days they have not reached yet.
+      </p>
+    </div>
+  );
+}
+
 function RankList({
   title,
   rows,
@@ -440,4 +610,8 @@ function formatDuration(seconds: number): string {
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatPercentage(value: number): string {
+  return `${value % 1 === 0 ? value.toFixed(0) : value.toFixed(1)}%`;
 }

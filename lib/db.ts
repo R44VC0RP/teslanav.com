@@ -569,6 +569,15 @@ export interface AnalyticsStats {
     pageviews: number;
     activeSeconds: number;
   }>;
+  retention: {
+    cohortWindowDays: number;
+    rows: Array<{
+      dayOffset: number;
+      eligibleVisitors: number;
+      returningVisitors: number;
+      percentage: number | null;
+    }>;
+  };
   devices: Array<{ value: string; count: number }>;
   topPages: Array<{ value: string; count: number }>;
   topReferrers: Array<{ value: string; count: number }>;
@@ -662,6 +671,39 @@ export function getAnalyticsStats(): AnalyticsStats {
       activeSeconds: 0,
     };
   });
+
+  const retentionCohortWindowDays = 90;
+  const retentionRows = db
+    .prepare(
+      `WITH RECURSIVE
+         offsets(day_offset) AS (
+           VALUES (0)
+           UNION ALL
+           SELECT day_offset + 1 FROM offsets WHERE day_offset < 30
+         ),
+         cohort AS (
+           SELECT visitor_hash,
+                  date(first_seen_at / 1000, 'unixepoch') AS first_day
+           FROM analytics_visitors
+           WHERE date(first_seen_at / 1000, 'unixepoch') >= date(?, '-89 days')
+         )
+       SELECT o.day_offset AS dayOffset,
+              COUNT(c.visitor_hash) AS eligibleVisitors,
+              COUNT(d.visitor_hash) AS returningVisitors
+       FROM offsets o
+       LEFT JOIN cohort c
+         ON c.first_day <= date(?, '-' || o.day_offset || ' days')
+       LEFT JOIN analytics_daily_visitors d
+         ON d.visitor_hash = c.visitor_hash
+        AND d.day = date(c.first_day, '+' || o.day_offset || ' days')
+       GROUP BY o.day_offset
+       ORDER BY o.day_offset`
+    )
+    .all(today, today) as Array<{
+      dayOffset: number;
+      eligibleVisitors: number;
+      returningVisitors: number;
+    }>;
 
   const scalar = (sql: string, ...params: unknown[]): number => {
     const row = db.prepare(sql).get(...params) as { value: number | null };
@@ -770,6 +812,16 @@ export function getAnalyticsStats(): AnalyticsStats {
       ),
     },
     daily,
+    retention: {
+      cohortWindowDays: retentionCohortWindowDays,
+      rows: retentionRows.map((row) => ({
+        ...row,
+        percentage:
+          row.eligibleVisitors === 0
+            ? null
+            : Math.round((row.returningVisitors * 1000) / row.eligibleVisitors) / 10,
+      })),
+    },
     devices: dimensions,
     topPages,
     topReferrers,
