@@ -331,74 +331,137 @@ function changeLabel(current: number, previous: number): string {
   return `${change > 0 ? "+" : ""}${change}% vs prior day`;
 }
 
-function metricCard(
+// --- Email presentation ------------------------------------------------
+// Light, editorial report layout: typographic hierarchy and hairline rules
+// instead of dashboard cards. Email-safe: inline styles, table layout, no
+// external assets, scripts, SVG, classes, or remote fonts.
+
+const EMAIL_SANS =
+  "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+const EMAIL_SERIF = "Georgia,'Times New Roman',Times,serif";
+const INK = "#1d1c1a";
+const MUTED = "#6d675e";
+const FAINT = "#9b9488";
+const RULE = "#e6e1d8";
+const RULE_STRONG = "#1d1c1a";
+const RED = "#c8272c";
+const BAR = "#35322c";
+const TRACK = "#efebe3";
+const PAPER = "#f4f1ec";
+const CANVAS = "#ffffff";
+
+function sectionHeading(title: string): string {
+  return `<div style="font-family:${EMAIL_SANS};color:${INK};font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;border-bottom:1px solid ${RULE_STRONG};padding-bottom:7px">${escapeHtml(title)}</div>`;
+}
+
+function inlineBar(percent: number, color = BAR): string {
+  const clamped =
+    percent <= 0 ? 0 : Math.max(3, Math.min(100, Math.round(percent)));
+  const cells =
+    clamped === 0
+      ? `<td style="background:${TRACK};height:6px;font-size:1px;line-height:6px">&nbsp;</td>`
+      : clamped === 100
+        ? `<td style="background:${color};height:6px;font-size:1px;line-height:6px">&nbsp;</td>`
+        : `<td width="${clamped}%" style="background:${color};height:6px;font-size:1px;line-height:6px">&nbsp;</td>
+           <td style="background:${TRACK};height:6px;font-size:1px;line-height:6px">&nbsp;</td>`;
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="table-layout:fixed"><tr>${cells}</tr></table>`;
+}
+
+function emptyListRow(columns: number): string {
+  return `<tr><td colspan="${columns}" style="padding:10px 0 2px;font-family:${EMAIL_SANS};color:${FAINT};font-size:12px;font-style:italic">No activity recorded.</td></tr>`;
+}
+
+function heroMetric(
   label: string,
   value: string,
   detail: string,
-  accent = "#60a5fa"
+  side: "left" | "right",
+  ruled: boolean
 ): string {
-  return `<td width="50%" valign="top" style="padding:6px">
-    <div style="background:#171717;border:1px solid #2a2a2a;border-radius:12px;padding:16px;min-height:82px">
-      <div style="color:#8a8a8a;font-size:11px;text-transform:uppercase;letter-spacing:.08em">${escapeHtml(label)}</div>
-      <div style="color:${accent};font-size:27px;line-height:1.1;font-weight:700;margin-top:7px">${escapeHtml(value)}</div>
-      <div style="color:#777;font-size:11px;margin-top:6px">${escapeHtml(detail)}</div>
-    </div>
+  const padding = side === "left" ? "16px 10px 18px 0" : "16px 0 18px 10px";
+  const border = ruled ? `border-top:1px solid ${RULE};` : "";
+  return `<td width="50%" valign="top" style="${border}padding:${padding}">
+    <div style="font-family:${EMAIL_SANS};color:${MUTED};font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase">${escapeHtml(label)}</div>
+    <div style="font-family:${EMAIL_SERIF};color:${INK};font-size:34px;line-height:1.05;margin-top:8px">${escapeHtml(value)}</div>
+    <div style="font-family:${EMAIL_SANS};color:${FAINT};font-size:12px;margin-top:7px">${escapeHtml(detail)}</div>
   </td>`;
 }
 
-function rankedChart(title: string, rows: RankedValue[]): string {
+function secondaryMetric(label: string, value: string): string {
+  return `<td width="25%" valign="top" style="padding:14px 4px 2px 0">
+    <div style="font-family:${EMAIL_SERIF};color:${INK};font-size:19px;line-height:1.1">${escapeHtml(value)}</div>
+    <div style="font-family:${EMAIL_SANS};color:${FAINT};font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-top:5px">${escapeHtml(label)}</div>
+  </td>`;
+}
+
+function rankedSection(title: string, rows: RankedValue[]): string {
   const max = Math.max(1, ...rows.map((row) => row.count));
-  const content = rows.length
+  const body = rows.length
     ? rows
         .map(
           (row) => `<tr>
-            <td style="padding:5px 10px 5px 0;color:#d4d4d4;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">${escapeHtml(row.value)}</td>
-            <td width="48%" style="padding:5px 0">
-              <div style="height:7px;background:#262626;border-radius:6px;overflow:hidden">
-                <div style="height:7px;width:${Math.max(2, (row.count / max) * 100)}%;background:#60a5fa;border-radius:6px"></div>
-              </div>
-            </td>
-            <td width="42" align="right" style="padding:5px 0;color:#8a8a8a;font-size:11px">${formatNumber(row.count)}</td>
+            <td style="padding:9px 12px 9px 0;border-bottom:1px solid ${RULE};font-family:${EMAIL_SANS};color:${INK};font-size:13px;line-height:1.4;word-break:break-word">${escapeHtml(row.value)}</td>
+            <td width="96" style="padding:9px 0;border-bottom:1px solid ${RULE}">${inlineBar((row.count / max) * 100)}</td>
+            <td width="52" align="right" style="padding:9px 0 9px 10px;border-bottom:1px solid ${RULE};font-family:${EMAIL_SANS};color:${MUTED};font-size:12px">${formatNumber(row.count)}</td>
           </tr>`
         )
         .join("")
-    : `<tr><td style="padding:12px 0;color:#737373;font-size:12px">No activity.</td></tr>`;
-  return `<div style="background:#141414;border:1px solid #292929;border-radius:12px;padding:16px;margin-top:12px">
-    <div style="color:#f5f5f5;font-size:14px;font-weight:700;margin-bottom:8px">${escapeHtml(title)}</div>
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${content}</table>
+    : emptyListRow(3);
+  return `<div style="margin-top:32px">
+    ${sectionHeading(title)}
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${body}</table>
   </div>`;
+}
+
+function compactList(title: string, rows: RankedValue[]): string {
+  const body = rows.length
+    ? rows
+        .map(
+          (row) => `<tr>
+            <td style="padding:9px 8px 9px 0;border-bottom:1px solid ${RULE};font-family:${EMAIL_SANS};color:${INK};font-size:13px;line-height:1.4;word-break:break-word">${escapeHtml(row.value)}</td>
+            <td align="right" style="padding:9px 0;border-bottom:1px solid ${RULE};font-family:${EMAIL_SANS};color:${MUTED};font-size:12px;white-space:nowrap">${formatNumber(row.count)}</td>
+          </tr>`
+        )
+        .join("")
+    : emptyListRow(2);
+  return `${sectionHeading(title)}
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${body}</table>`;
 }
 
 function dailyBars(rows: AnalyticsDigest["dailyTrend"]): string {
   const max = Math.max(1, ...rows.map((row) => row.visitors));
+  const last = rows.length - 1;
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="table-layout:fixed">
     <tr>${rows
       .map(
-        (row) => `<td valign="bottom" align="center" style="height:90px;padding:0 2px">
-          <div style="font-size:9px;color:#737373;margin-bottom:4px">${formatNumber(row.visitors)}</div>
-          <div style="height:${Math.max(2, (row.visitors / max) * 62)}px;background:#3b82f6;border-radius:3px 3px 1px 1px"></div>
+        (row, index) => `<td valign="bottom" align="center" style="padding:0 2px;border-bottom:2px solid ${RULE_STRONG}">
+          <div style="font-family:${EMAIL_SANS};font-size:9px;color:${FAINT};margin-bottom:4px">${formatNumber(row.visitors)}</div>
+          <div style="height:${Math.max(2, Math.round((row.visitors / max) * 64))}px;background:${index === last ? RED : BAR};font-size:1px;line-height:2px">&nbsp;</div>
         </td>`
       )
       .join("")}</tr>
     <tr>${rows
       .map(
-        (row, index) => `<td align="center" style="padding-top:5px;color:#666;font-size:8px">${
-          index % 2 === 0 ? escapeHtml(row.day.slice(5)) : ""
+        (row, index) => `<td align="center" style="padding-top:6px;font-family:${EMAIL_SANS};color:${FAINT};font-size:9px">${
+          index % 2 === 1 ? escapeHtml(row.day.slice(5)) : ""
         }</td>`
       )
       .join("")}</tr>
   </table>`;
 }
 
-function retentionChart(rows: AnalyticsDigest["retention"]): string {
+function retentionRows(rows: AnalyticsDigest["retention"]): string {
   return rows
     .map((row) => {
       const percentage = row.percentage ?? 0;
-      const label = row.percentage === null ? "Not eligible yet" : `${percentage}%`;
+      const label =
+        row.percentage === null
+          ? `<span style="color:${FAINT};font-style:italic">Not eligible yet</span>`
+          : `${percentage}% <span style="color:${FAINT}">(${formatNumber(row.returningVisitors)}/${formatNumber(row.eligibleVisitors)})</span>`;
       return `<tr>
-        <td width="36" style="padding:6px 8px 6px 0;color:#a3a3a3;font-size:11px">D${row.dayOffset}</td>
-        <td style="padding:6px 0"><div style="height:8px;background:#262626;border-radius:6px;overflow:hidden"><div style="height:8px;width:${percentage}%;background:#60a5fa;border-radius:6px"></div></div></td>
-        <td width="100" align="right" style="padding:6px 0 6px 8px;color:#d4d4d4;font-size:11px">${label}</td>
+        <td width="56" style="padding:9px 12px 9px 0;border-bottom:1px solid ${RULE};font-family:${EMAIL_SANS};color:${MUTED};font-size:12px;font-weight:600;white-space:nowrap">Day ${row.dayOffset}</td>
+        <td style="padding:9px 0;border-bottom:1px solid ${RULE}">${inlineBar(percentage)}</td>
+        <td width="120" align="right" style="padding:9px 0 9px 12px;border-bottom:1px solid ${RULE};font-family:${EMAIL_SANS};color:${INK};font-size:12px">${label}</td>
       </tr>`;
     })
     .join("");
@@ -406,6 +469,7 @@ function retentionChart(rows: AnalyticsDigest["retention"]): string {
 
 export function renderAnalyticsDigestHtml(digest: AnalyticsDigest, test: boolean): string {
   const reportDate = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
@@ -413,61 +477,73 @@ export function renderAnalyticsDigestHtml(digest: AnalyticsDigest, test: boolean
   }).format(new Date(`${digest.reportDay}T12:00:00Z`));
   const fallbackNotice =
     digest.dataSource === "utc-fallback"
-      ? `<div style="margin:14px 0 0;padding:10px 12px;border-radius:8px;background:#2b2111;color:#f5c46b;font-size:11px;line-height:1.5">Historical fallback: hourly Eastern coverage was not available for this date, so visitor, page, and event totals use the existing UTC daily aggregates. Future reports use exact Eastern-day windows.</div>`
+      ? `<div style="margin-top:20px;padding:2px 0 2px 14px;border-left:3px solid #b08427;font-family:${EMAIL_SANS};color:${MUTED};font-size:12px;line-height:1.6">Historical fallback: hourly Eastern coverage was not available for this date, so visitor, page, and event totals use the existing UTC daily aggregates. Future reports use exact Eastern-day windows.</div>`
       : "";
   const adminUrl = `${process.env.PUBLIC_BASE_URL || "https://teslanav.com"}/admin`;
 
   return `<!doctype html>
-<html><body style="margin:0;padding:0;background:#090909;color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
-  <div style="display:none;max-height:0;overflow:hidden">${test ? "Test - " : ""}${formatNumber(digest.summary.visitors)} visitors, ${formatNumber(digest.summary.pageviews)} pageviews, and daily retention.</div>
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#090909"><tr><td align="center" style="padding:28px 12px">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px">
-      <tr><td style="padding:0 6px 20px">
-        <div style="color:#ef4444;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase">TeslaNav</div>
-        <div style="font-size:29px;font-weight:750;line-height:1.2;margin-top:7px">${test ? "Test daily analytics" : "Daily analytics"}</div>
-        <div style="color:#8a8a8a;font-size:13px;margin-top:6px">${escapeHtml(reportDate)} &middot; Previous day in ${escapeHtml(digest.timeZone)}</div>
+<html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:${PAPER};color:${INK};font-family:${EMAIL_SANS}">
+  <div style="display:none;max-height:0;overflow:hidden;color:${PAPER}">${test ? "Test - " : ""}${formatNumber(digest.summary.visitors)} visitors, ${formatNumber(digest.summary.pageviews)} pageviews, and daily retention.</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:${PAPER}"><tr><td align="center" style="padding:32px 12px 44px">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:${CANVAS}">
+      <tr><td style="height:3px;background:${RED};font-size:1px;line-height:3px">&nbsp;</td></tr>
+      <tr><td style="padding:34px 30px 38px">
+
+        <div style="font-family:${EMAIL_SANS};color:${RED};font-size:12px;font-weight:800;letter-spacing:.22em;text-transform:uppercase">TeslaNav</div>
+        <div style="font-family:${EMAIL_SANS};color:${FAINT};font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;margin-top:7px">${test ? "Test &middot; " : ""}Daily analytics report</div>
+        <div style="font-family:${EMAIL_SERIF};color:${INK};font-size:30px;line-height:1.15;margin-top:16px">${escapeHtml(reportDate)}</div>
+        <div style="font-family:${EMAIL_SANS};color:${MUTED};font-size:12px;margin-top:8px">Previous day &middot; ${escapeHtml(digest.timeZone)}</div>
         ${fallbackNotice}
-      </td></tr>
-      <tr><td><table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-        <tr>
-          ${metricCard("Visitors", formatNumber(digest.summary.visitors), changeLabel(digest.summary.visitors, digest.previousSummary.visitors))}
-          ${metricCard("Pageviews", formatNumber(digest.summary.pageviews), changeLabel(digest.summary.pageviews, digest.previousSummary.pageviews), "#f59e0b")}
-        </tr>
-        <tr>
-          ${metricCard("Sessions", formatNumber(digest.summary.sessions), changeLabel(digest.summary.sessions, digest.previousSummary.sessions), "#a78bfa")}
-          ${metricCard("Engaged time", formatDuration(digest.summary.activeSeconds), changeLabel(digest.summary.activeSeconds, digest.previousSummary.activeSeconds), "#34d399")}
-        </tr>
-      </table></td></tr>
-      <tr><td style="padding:18px 6px 0">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
-          <td width="25%" valign="top"><div style="color:#f5f5f5;font-size:18px;font-weight:700">${formatNumber(digest.newVisitors)}</div><div style="color:#737373;font-size:10px;margin-top:3px">NEW</div></td>
-          <td width="25%" valign="top"><div style="color:#f5f5f5;font-size:18px;font-weight:700">${formatNumber(digest.returningVisitors)}</div><div style="color:#737373;font-size:10px;margin-top:3px">RETURNING</div></td>
-          <td width="25%" valign="top"><div style="color:#f5f5f5;font-size:18px;font-weight:700">${formatNumber(digest.teslaVisitors)}</div><div style="color:#737373;font-size:10px;margin-top:3px">TESLA</div></td>
-          <td width="25%" valign="top"><div style="color:#f5f5f5;font-size:18px;font-weight:700">${formatNumber(digest.requests)}</div><div style="color:#737373;font-size:10px;margin-top:3px">REQUESTS</div></td>
-        </tr></table>
-      </td></tr>
-      <tr><td style="padding:24px 6px 0">
-        <div style="font-size:16px;font-weight:700;margin-bottom:10px">14-day visitors</div>
-        <div style="background:#141414;border:1px solid #292929;border-radius:12px;padding:14px 10px 10px">${dailyBars(digest.dailyTrend)}</div>
-      </td></tr>
-      <tr><td style="padding:22px 6px 0">
-        <div style="font-size:16px;font-weight:700">Retention</div>
-        <div style="color:#737373;font-size:11px;margin-top:4px">Exact-day cohort return; recent visitors are excluded until eligible.</div>
-        <div style="background:#141414;border:1px solid #292929;border-radius:12px;padding:12px 16px;margin-top:10px">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${retentionChart(digest.retention)}</table>
+
+        <div style="border-top:2px solid ${RULE_STRONG};margin-top:26px"></div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+          <tr>
+            ${heroMetric("Visitors", formatNumber(digest.summary.visitors), changeLabel(digest.summary.visitors, digest.previousSummary.visitors), "left", false)}
+            ${heroMetric("Pageviews", formatNumber(digest.summary.pageviews), changeLabel(digest.summary.pageviews, digest.previousSummary.pageviews), "right", false)}
+          </tr>
+          <tr>
+            ${heroMetric("Sessions", formatNumber(digest.summary.sessions), changeLabel(digest.summary.sessions, digest.previousSummary.sessions), "left", true)}
+            ${heroMetric("Engaged time", formatDuration(digest.summary.activeSeconds), changeLabel(digest.summary.activeSeconds, digest.previousSummary.activeSeconds), "right", true)}
+          </tr>
+        </table>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top:1px solid ${RULE}">
+          <tr>
+            ${secondaryMetric("New", formatNumber(digest.newVisitors))}
+            ${secondaryMetric("Returning", formatNumber(digest.returningVisitors))}
+            ${secondaryMetric("Tesla", formatNumber(digest.teslaVisitors))}
+            ${secondaryMetric("Requests", formatNumber(digest.requests))}
+          </tr>
+        </table>
+
+        <div style="margin-top:36px">
+          ${sectionHeading("Last 14 days")}
+          <div style="font-family:${EMAIL_SANS};color:${FAINT};font-size:11px;line-height:1.5;margin-top:8px">Unique visitors per day.</div>
+          <div style="margin-top:14px">${dailyBars(digest.dailyTrend)}</div>
         </div>
-      </td></tr>
-      <tr><td style="padding:10px 6px 0">
-        ${rankedChart("Referrers", digest.referrers)}
-        ${rankedChart("Device mix", digest.devices)}
-        ${rankedChart("Top pages", digest.topPages)}
-        ${rankedChart("Feature activity", digest.topEvents)}
-        ${rankedChart("Map modes", digest.mapModes)}
-        ${rankedChart("Top request routes", digest.topRequests)}
-      </td></tr>
-      <tr><td align="center" style="padding:24px 6px 4px;color:#666;font-size:11px;line-height:1.6">
-        Anonymous first-party analytics only. No location, IP address, or page content is included.<br>
-        <a href="${escapeHtml(adminUrl)}" style="color:#60a5fa;text-decoration:none">Open TeslaNav Admin</a>
+
+        <div style="margin-top:32px">
+          ${sectionHeading("Retention")}
+          <div style="font-family:${EMAIL_SANS};color:${FAINT};font-size:11px;line-height:1.5;margin-top:8px">Exact-day cohort return; recent visitors are excluded until eligible.</div>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:2px">${retentionRows(digest.retention)}</table>
+        </div>
+
+        ${rankedSection("Referrers", digest.referrers)}
+        ${rankedSection("Top pages", digest.topPages)}
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:32px"><tr>
+          <td width="50%" valign="top" style="padding-right:14px">${compactList("Device mix", digest.devices)}</td>
+          <td width="50%" valign="top" style="padding-left:14px">${compactList("Map modes", digest.mapModes)}</td>
+        </tr></table>
+
+        ${rankedSection("Feature activity", digest.topEvents)}
+        ${rankedSection("Top request routes", digest.topRequests)}
+
+        <div style="border-top:1px solid ${RULE};margin-top:38px;padding-top:18px;font-family:${EMAIL_SANS};color:${FAINT};font-size:11px;line-height:1.7;text-align:center">
+          Anonymous first-party analytics only. No location, IP address, or page content is included.<br>
+          <a href="${escapeHtml(adminUrl)}" style="color:${RED};text-decoration:underline">Open TeslaNav Admin</a>
+        </div>
+
       </td></tr>
     </table>
   </td></tr></table>
