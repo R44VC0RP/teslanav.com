@@ -1,8 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
-import { del } from "@vercel/blob";
+import { deleteRecording, getRecording } from "@/lib/db";
 
 /**
- * DELETE /api/recording/[id] - Delete a recording from Vercel Blob
+ * GET /api/recording/[id] - Download a GPX recording from SQLite
+ */
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const recording = getRecording(id);
+
+    if (!recording) {
+      return NextResponse.json(
+        { error: "Recording not found" },
+        { status: 404 }
+      );
+    }
+
+    return new NextResponse(recording.gpx, {
+      headers: {
+        "Content-Type": "application/gpx+xml",
+        "Cache-Control": "private, max-age=31536000, immutable",
+      },
+    });
+  } catch (error) {
+    console.error("Recording fetch error:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch recording" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/recording/[id] - Delete a recording from SQLite
  */
 export async function DELETE(
   request: NextRequest,
@@ -10,18 +43,14 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const body = await request.json();
-    const { blobUrl } = body;
+    const deleted = deleteRecording(id);
 
-    if (!blobUrl || typeof blobUrl !== "string") {
+    if (!deleted) {
       return NextResponse.json(
-        { error: "Blob URL is required" },
-        { status: 400 }
+        { error: "Recording not found" },
+        { status: 404 }
       );
     }
-
-    // Delete from Vercel Blob
-    await del(blobUrl);
 
     return NextResponse.json({
       success: true,

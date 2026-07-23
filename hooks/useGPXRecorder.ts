@@ -154,14 +154,16 @@ export function useGPXRecorder(options: UseGPXRecorderOptions = {}): UseGPXRecor
       const name = generateRecordingName();
       const gpxString = generateGPX(points, name);
       const sessionToken = getOrCreateSessionToken();
-      
-      // Upload to Vercel Blob via API
+      const id = generateUUID();
+
+      // Save to server-side SQLite via API
       const response = await fetch("/api/recording", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          id,
           gpx: gpxString,
           name,
           sessionToken,
@@ -176,7 +178,7 @@ export function useGPXRecorder(options: UseGPXRecorderOptions = {}): UseGPXRecor
       
       // Create session metadata
       const session: RecordingSession = {
-        id: generateUUID(),
+        id,
         name,
         createdAt: new Date().toISOString(),
         duration: calculateDuration(points),
@@ -244,18 +246,14 @@ export function useGPXRecorder(options: UseGPXRecorderOptions = {}): UseGPXRecor
     const session = sessions.find(s => s.id === id);
     
     if (session) {
-      // Delete from Vercel Blob via API
+      // Delete from server-side SQLite via API
       try {
         await fetch(`/api/recording/${id}`, {
           method: "DELETE",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ blobUrl: session.blobUrl }),
         });
       } catch (error) {
-        console.error("Failed to delete blob:", error);
-        // Continue to remove from localStorage even if blob deletion fails
+        console.error("Failed to delete recording:", error);
+        // Continue to remove from localStorage even if deletion fails
       }
     }
     

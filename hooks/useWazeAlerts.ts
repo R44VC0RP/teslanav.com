@@ -134,8 +134,8 @@ export function useWazeAlerts({
       const alertMap = new Map<string, WazeAlert>();
       for (const tile of overlappingTiles) {
         for (const alert of tile.alerts) {
-          if (!alertMap.has(alert.uuid)) {
-            alertMap.set(alert.uuid, alert);
+          if (!alertMap.has(alert.id)) {
+            alertMap.set(alert.id, alert);
           }
         }
       }

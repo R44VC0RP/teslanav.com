@@ -1,0 +1,9 @@
+.git
+node_modules
+.next
+data
+scripts
+ideas.md
+*.log
+.env
+.env.*

@@ -102,8 +102,6 @@ export default function RecordPage() {
           speed 
         }}
         followMode={recordingState.isRecording}
-        showTraffic={false}
-        useSatellite={false}
         showAvatarPulse={true}
       />
 

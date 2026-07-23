@@ -2,7 +2,6 @@
 
 import { useState, useCallback } from "react";
 import Image from "next/image";
-import posthog from "posthog-js";
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -40,10 +39,6 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
 
       if (response.ok) {
         setSubmitStatus("success");
-        posthog.capture("feedback_submitted", {
-          has_email: !!email.trim(),
-          feedback_length: feedback.length,
-        });
 
         // Auto-close after success
         setTimeout(() => {

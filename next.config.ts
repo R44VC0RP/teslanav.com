@@ -1,39 +1,14 @@
 import type { NextConfig } from "next";
 
-const shutdownRaw = process.env.NEXT_PUBLIC_PROJECT_SHUTDOWN;
-const isProjectShutdown =
-  !shutdownRaw || !["0", "false", "off", "no"].includes(shutdownRaw.trim().toLowerCase());
-
 const nextConfig: NextConfig = {
-  /* config options here */
-  async rewrites() {
-    if (isProjectShutdown) {
-      return [];
-    }
-
-    return [
-      // PostHog rewrites
-      {
-        source: "/ingest/static/:path*",
-        destination: "https://us-assets.i.posthog.com/static/:path*",
-      },
-      {
-        source: "/ingest/:path*",
-        destination: "https://us.i.posthog.com/:path*",
-      },
-      // DataFast rewrites
-      {
-        source: "/js/script.js",
-        destination: "https://datafa.st/js/script.js",
-      },
-      {
-        source: "/api/events",
-        destination: "https://datafa.st/api/events",
-      },
-    ];
-  },
-  // This is required to support PostHog trailing slash API requests
-  skipTrailingSlashRedirect: true,
+  // Self-contained deployment: single `node server.js` in Docker
+  output: "standalone",
+  // Avoid a parent-directory package-lock making Next infer /Users/vogel as
+  // the workspace root (which also bloats/weakens standalone tracing).
+  turbopack: { root: process.cwd() },
+  outputFileTracingRoot: process.cwd(),
+  // better-sqlite3 is a native module - keep it external to bundling
+  serverExternalPackages: ["better-sqlite3"],
 };
 
 export default nextConfig;

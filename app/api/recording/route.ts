@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { put, list } from "@vercel/blob";
+import { insertRecording, listRecordings } from "@/lib/db";
 
 /**
- * POST /api/recording - Upload a GPX recording to Vercel Blob
+ * POST /api/recording - Save a GPX recording to SQLite
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { gpx, name, sessionToken } = body;
+    const { id, gpx, name, sessionToken } = body;
 
     // Validate required fields
+    if (!id || typeof id !== "string") {
+      return NextResponse.json(
+        { error: "Recording id is required" },
+        { status: 400 }
+      );
+    }
+
     if (!gpx || typeof gpx !== "string") {
       return NextResponse.json(
         { error: "GPX data is required" },
@@ -39,20 +46,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate a unique filename
-    const timestamp = Date.now();
-    const sanitizedName = name.replace(/[^a-zA-Z0-9-_]/g, "-").toLowerCase();
-    const filename = `recordings/${sessionToken}/${timestamp}-${sanitizedName}.gpx`;
-
-    // Upload to Vercel Blob
-    const blob = await put(filename, gpx, {
-      access: "public",
-      contentType: "application/gpx+xml",
-    });
+    insertRecording({ id, sessionToken, name, gpx });
 
     return NextResponse.json({
       success: true,
-      blobUrl: blob.url,
+      id,
+      blobUrl: `/api/recording/${id}`,
     });
   } catch (error) {
     console.error("Recording upload error:", error);
@@ -78,17 +77,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // List blobs with prefix matching the session token
-    const { blobs } = await list({
-      prefix: `recordings/${sessionToken}/`,
-    });
+    const recordings = listRecordings(sessionToken);
 
     return NextResponse.json({
-      recordings: blobs.map((blob) => ({
-        url: blob.url,
-        pathname: blob.pathname,
-        size: blob.size,
-        uploadedAt: blob.uploadedAt,
+      recordings: recordings.map((recording) => ({
+        id: recording.id,
+        name: recording.name,
+        url: `/api/recording/${recording.id}`,
+        size: recording.size,
+        uploadedAt: recording.created_at,
       })),
     });
   } catch (error) {

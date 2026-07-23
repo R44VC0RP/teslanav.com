@@ -1,42 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPostHogClient } from "@/lib/posthog-server";
-import { redis, CACHE_KEYS, CACHE_TTL, RATE_LIMITS } from "@/lib/redis";
+import {
+  getAlertsCacheKey,
+  getCachedAlerts,
+  setPendingBounds,
+} from "@/lib/waze-relay";
+import { getWazeRtAlerts } from "@/lib/waze-rt";
+import type { WazeAlert } from "@/types/waze";
 
-// Generate a cache key with tolerance for similar bounds (~1km precision)
-function getCacheKey(left: string, right: string, bottom: string, top: string): string {
-  // Round to 2 decimal places (~1km precision) to allow cache hits for nearby requests
-  const roundTo = (n: string) => parseFloat(n).toFixed(2);
-  return `${CACHE_KEYS.WAZE_ALERTS}${roundTo(left)},${roundTo(right)},${roundTo(bottom)},${roundTo(top)}`;
-}
-
-// Check and increment global rate limit
-async function checkRateLimit(): Promise<{ allowed: boolean; remaining: number }> {
-  const key = CACHE_KEYS.WAZE_RATE_LIMIT;
-  
-  try {
-    // Use Redis INCR with TTL for sliding window rate limiting
-    const count = await redis.incr(key);
-    
-    // Set expiry on first request of the window
-    if (count === 1) {
-      await redis.expire(key, CACHE_TTL.RATE_LIMIT_WINDOW);
-    }
-    
-    const remaining = Math.max(0, RATE_LIMITS.WAZE_REQUESTS_PER_MINUTE - count);
-    return {
-      allowed: count <= RATE_LIMITS.WAZE_REQUESTS_PER_MINUTE,
-      remaining,
-    };
-  } catch (error) {
-    // If Redis fails, allow the request but log it
-    console.error("Redis rate limit check failed:", error);
-    return { allowed: true, remaining: RATE_LIMITS.WAZE_REQUESTS_PER_MINUTE };
-  }
-}
-
+/**
+ * GET /api/waze?left=&right=&bottom=&top=
+ *
+ * Serves the read-only Waze mobile RT protocol as the always-on baseline.
+ * The optional userscript relay enriches it with the higher-fidelity GeoRSS
+ * feed when WAZE_RELAY_SECRET is configured.
+ *
+ * On a cache miss we record the requested bounds (the userscript polls for
+ * them) and return 503 so the client keeps its previous alerts and retries.
+ */
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
-  
+
   const left = searchParams.get("left");
   const right = searchParams.get("right");
   const bottom = searchParams.get("bottom");
@@ -49,157 +32,67 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const cacheKey = getCacheKey(left, right, bottom, top);
-
-  // Try to get from Redis cache first
-  try {
-    const cached = await redis.get<{ alerts: unknown[] }>(cacheKey);
-    
-    if (cached) {
-      const alertCount = cached.alerts?.length || 0;
-      console.log(`[Waze] Cache HIT - ${alertCount} alerts`);
-      return NextResponse.json(cached, {
-        headers: {
-          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
-          "X-Cache": "HIT",
-        },
-      });
-    }
-  } catch (error) {
-    // Log but continue if cache read fails
-    console.error("Redis cache read failed:", error);
+  const west = Number(left);
+  const east = Number(right);
+  const south = Number(bottom);
+  const north = Number(top);
+  if (
+    ![west, east, south, north].every(Number.isFinite) ||
+    west >= east || south >= north ||
+    west < -180 || east > 180 || south < -90 || north > 90 ||
+    east - west > 2 || north - south > 2
+  ) {
+    return NextResponse.json({ error: "Invalid bounds" }, { status: 400 });
   }
 
-  // Check global rate limit before making external request
-  const { allowed, remaining } = await checkRateLimit();
-  
-  if (!allowed) {
-    // Track rate limit hit
-    const posthog = getPostHogClient();
-    posthog.capture({
-      distinctId: "server",
-      event: "waze_global_rate_limited",
-      properties: {
-        bounds: { left, right, bottom, top },
-      },
-    });
-    await posthog.shutdown();
+  const cacheKey = getAlertsCacheKey(left, right, bottom, top);
 
+  const bounds = { west, east, south, north };
+  const [rt, relayed] = await Promise.all([
+    getWazeRtAlerts(bounds),
+    getCachedAlerts<{ alerts?: WazeAlert[] }>(cacheKey),
+  ]);
+
+  // Keep relay demand alive on every active client request, not only misses.
+  // This prevents the optional GeoRSS enrichment from expiring while RT data
+  // is still being served successfully.
+  if (process.env.WAZE_RELAY_SECRET) {
+    setPendingBounds({ left, right, bottom, top }).catch((error) =>
+      console.error("[Waze] Failed to record relay bounds:", error)
+    );
+  }
+
+  const merged = new Map<string, WazeAlert>();
+  for (const alert of rt.alerts) merged.set(alert.id, alert);
+  // GeoRSS is richer; prefer it when both sources describe the same alert.
+  for (const alert of relayed?.alerts ?? []) merged.set(alert.id, alert);
+
+  if (rt.cache !== "MISS" || relayed) {
+    const alerts = [...merged.values()];
+    const cache = relayed || rt.cache === "HIT" ? "HIT" : "STALE";
+    console.log(`[Waze] ${cache} - ${alerts.length} alerts (RT + optional GeoRSS)`);
     return NextResponse.json(
-      { error: "Rate limited", alerts: [] },
-      { 
-        status: 429,
+      { alerts },
+      {
         headers: {
-          "Retry-After": "60",
-          "Cache-Control": "no-store",
-          "X-RateLimit-Remaining": "0",
+          "Cache-Control": "public, max-age=10",
+          "X-Cache": cache,
+          ...(rt.ageMs !== null ? { Age: String(Math.floor(rt.ageMs / 1000)) } : {}),
         },
       }
     );
   }
 
-  try {
-    const wazeUrl = new URL("https://www.waze.com/live-map/api/georss");
-    wazeUrl.searchParams.set("left", left);
-    wazeUrl.searchParams.set("right", right);
-    wazeUrl.searchParams.set("bottom", bottom);
-    wazeUrl.searchParams.set("top", top);
-    
-    // Auto-detect region based on longitude
-    // North America is roughly between -170° and -30° longitude
-    const centerLon = (parseFloat(left) + parseFloat(right)) / 2;
-    const env = centerLon >= -170 && centerLon <= -30 ? "na" : "row";
-    wazeUrl.searchParams.set("env", env);
-    
-    wazeUrl.searchParams.set("types", "alerts");
-
-    const response = await fetch(wazeUrl.toString(), {
+  console.log("[Waze] Cache MISS - RT refresh started");
+  return NextResponse.json(
+    { error: "Alerts are warming up", alerts: [] },
+    {
+      status: 503,
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; TeslaNav/1.0)",
-        "Accept": "application/json",
-      },
-      next: { revalidate: 60 },
-    });
-
-    // Handle Waze rate limiting
-    if (response.status === 429) {
-      const posthog = getPostHogClient();
-      posthog.capture({
-        distinctId: "server",
-        event: "waze_upstream_rate_limited",
-        properties: {
-          bounds: { left, right, bottom, top },
-        },
-      });
-      await posthog.shutdown();
-
-      return NextResponse.json(
-        { error: "Rate limited", alerts: [] },
-        { 
-          status: 429,
-          headers: {
-            "Retry-After": "60",
-            "Cache-Control": "no-store",
-          },
-        }
-      );
-    }
-
-    if (!response.ok) {
-      throw new Error(`Waze API returned ${response.status}`);
-    }
-
-    const data = await response.json();
-    const alertCount = data.alerts?.length || 0;
-    console.log(`[Waze] Cache MISS - Fetched ${alertCount} alerts from Waze API`);
-
-    // Store in Redis cache
-    try {
-      await redis.set(cacheKey, data, { ex: CACHE_TTL.WAZE_ALERTS });
-    } catch (error) {
-      console.error("Redis cache write failed:", error);
-    }
-
-    return NextResponse.json(data, {
-      headers: {
-        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
+        "Cache-Control": "no-store",
+        "Retry-After": "5",
         "X-Cache": "MISS",
-        "X-RateLimit-Remaining": remaining.toString(),
       },
-    });
-  } catch (error) {
-    console.error("Waze API error:", error);
-
-    // Track Waze API error
-    const posthog = getPostHogClient();
-    posthog.capture({
-      distinctId: "server",
-      event: "waze_api_error",
-      properties: {
-        error_message: error instanceof Error ? error.message : "Unknown error",
-        bounds: { left, right, bottom, top },
-      },
-    });
-    await posthog.shutdown();
-
-    // Try to return stale cached data as fallback
-    try {
-      const stale = await redis.get<{ alerts: unknown[] }>(cacheKey);
-      if (stale) {
-        return NextResponse.json(stale, {
-          headers: {
-            "Cache-Control": "public, s-maxage=30",
-            "X-Cache": "STALE",
-          },
-        });
-      }
-    } catch {
-      // Ignore cache error on fallback
     }
-
-    return NextResponse.json(
-      { error: "Failed to fetch Waze data", alerts: [] },
-      { status: 500 }
-    );
-  }
+  );
 }

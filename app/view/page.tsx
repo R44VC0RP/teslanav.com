@@ -90,15 +90,13 @@ export default function ViewPage() {
     
     const session = sessions.find(s => s.id === sessionId);
     if (session) {
-      // Delete from blob
+      // Delete from server-side SQLite storage
       try {
         await fetch(`/api/recording/${sessionId}`, {
           method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ blobUrl: session.blobUrl }),
         });
       } catch (error) {
-        console.error("Failed to delete blob:", error);
+        console.error("Failed to delete recording:", error);
       }
     }
     
@@ -230,8 +228,6 @@ export default function ViewPage() {
           speed: null,
         } : null}
         followMode={playbackState.isPlaying}
-        showTraffic={false}
-        useSatellite={false}
         showAvatarPulse={false}
         routes={trackRoute ? [trackRoute] : undefined}
         selectedRouteIndex={0}

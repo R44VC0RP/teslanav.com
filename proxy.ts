@@ -1,44 +1,48 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { PROJECT_SHUTDOWN_ENABLED } from "@/lib/shutdown";
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
+import { recordAnalyticsRequest } from "@/lib/db";
 
-export function proxy(request: NextRequest): NextResponse {
-  if (!PROJECT_SHUTDOWN_ENABLED) {
-    return NextResponse.next();
+function normalizeRoute(pathname: string): string | null {
+  if (
+    pathname === "/api/analytics" ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/api/admin") ||
+    pathname.startsWith("/_next/") ||
+    /\.(?:css|js|map|png|jpe?g|gif|webp|svg|ico|woff2?|xml|txt|mp3)$/i.test(pathname)
+  ) {
+    return null;
+  }
+  if (/^\/api\/recording\/[^/]+$/.test(pathname)) {
+    return "/api/recording/[id]";
+  }
+  return pathname || "/";
+}
+
+export function proxy(request: NextRequest, event: NextFetchEvent) {
+  const publicHost =
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (publicHost?.toLowerCase() === "www.teslanav.com") {
+    const canonical = request.nextUrl.clone();
+    canonical.protocol = "https";
+    canonical.hostname = "teslanav.com";
+    canonical.port = "";
+    return NextResponse.redirect(canonical, 308);
   }
 
-  const { pathname } = request.nextUrl;
-
-  if (pathname.startsWith("/api/")) {
-    return NextResponse.json(
-      {
-        error:
-          "TeslaNav is currently shut down. API access is temporarily disabled.",
-      },
-      {
-        status: 503,
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      }
+  const route = normalizeRoute(request.nextUrl.pathname);
+  if (route) {
+    event.waitUntil(
+      Promise.resolve().then(() => {
+        try {
+          recordAnalyticsRequest(route, request.method);
+        } catch (error) {
+          console.error("[Analytics] request counter failed:", error);
+        }
+      })
     );
   }
-
-  if (pathname === "/") {
-    return NextResponse.next();
-  }
-
-  if (pathname.startsWith("/_next/")) {
-    return NextResponse.next();
-  }
-
-  const url = request.nextUrl.clone();
-  url.pathname = "/";
-  url.search = "";
-
-  return NextResponse.redirect(url);
+  return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/:path*"],
 };

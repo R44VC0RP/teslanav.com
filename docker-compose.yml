@@ -1,0 +1,39 @@
+services:
+  teslanav:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - teslanav-data:/data
+    environment:
+      # Optional: protect /api/admin/* with a Bearer key
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      ANALYTICS_HASH_SECRET: ${ANALYTICS_HASH_SECRET:-}
+      INBOUND_API_KEY: ${INBOUND_API_KEY:-}
+      SUGGESTION_TO_EMAIL: ${SUGGESTION_TO_EMAIL:-me@teslanav.com}
+      # Required for live Waze alerts: shared secret with the relay userscript
+      WAZE_RELAY_SECRET: ${WAZE_RELAY_SECRET:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+    restart: unless-stopped
+    init: true
+    cpus: 3.5
+    mem_limit: 4g
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  teslanav-data:

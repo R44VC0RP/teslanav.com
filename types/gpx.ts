@@ -20,7 +20,7 @@ export interface RecordingSession {
   createdAt: string; // ISO timestamp
   duration: number; // Total duration in milliseconds
   pointCount: number; // Number of track points
-  blobUrl: string; // Vercel Blob URL where GPX data is stored
+  blobUrl: string; // URL where GPX data is stored (server-side SQLite: /api/recording/{id})
   sessionToken: string; // Token to filter recordings by device/session
   bounds: {
     minLat: number;
