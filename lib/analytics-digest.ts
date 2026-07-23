@@ -332,13 +332,11 @@ function changeLabel(current: number, previous: number): string {
 }
 
 // --- Email presentation ------------------------------------------------
-// Light, editorial report layout: typographic hierarchy and hairline rules
-// instead of dashboard cards. Email-safe: inline styles, table layout, no
-// external assets, scripts, SVG, classes, or remote fonts.
+// Light report layout with default email-safe typography and hairline rules.
+// Email-safe: inline styles, table layout, no external assets, scripts, SVG,
+// classes, or remote fonts.
 
-const EMAIL_SANS =
-  "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
-const EMAIL_SERIF = "Georgia,'Times New Roman',Times,serif";
+const EMAIL_SANS = "Arial,Helvetica,sans-serif";
 const INK = "#1d1c1a";
 const MUTED = "#6d675e";
 const FAINT = "#9b9488";
@@ -351,7 +349,7 @@ const PAPER = "#f4f1ec";
 const CANVAS = "#ffffff";
 
 function sectionHeading(title: string): string {
-  return `<div style="font-family:${EMAIL_SANS};color:${INK};font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;border-bottom:1px solid ${RULE_STRONG};padding-bottom:7px">${escapeHtml(title)}</div>`;
+  return `<div style="font-family:${EMAIL_SANS};color:${INK};font-size:14px;font-weight:700;border-bottom:1px solid ${RULE_STRONG};padding-bottom:7px">${escapeHtml(title)}</div>`;
 }
 
 function inlineBar(percent: number, color = BAR): string {
@@ -374,23 +372,21 @@ function emptyListRow(columns: number): string {
 function heroMetric(
   label: string,
   value: string,
-  detail: string,
   side: "left" | "right",
   ruled: boolean
 ): string {
   const padding = side === "left" ? "16px 10px 18px 0" : "16px 0 18px 10px";
   const border = ruled ? `border-top:1px solid ${RULE};` : "";
   return `<td width="50%" valign="top" style="${border}padding:${padding}">
-    <div style="font-family:${EMAIL_SANS};color:${MUTED};font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase">${escapeHtml(label)}</div>
-    <div style="font-family:${EMAIL_SERIF};color:${INK};font-size:34px;line-height:1.05;margin-top:8px">${escapeHtml(value)}</div>
-    <div style="font-family:${EMAIL_SANS};color:${FAINT};font-size:12px;margin-top:7px">${escapeHtml(detail)}</div>
+    <div style="font-family:${EMAIL_SANS};color:${MUTED};font-size:12px;font-weight:400">${escapeHtml(label)}</div>
+    <div style="font-family:${EMAIL_SANS};color:${INK};font-size:32px;line-height:1.05;font-weight:700;margin-top:8px">${escapeHtml(value)}</div>
   </td>`;
 }
 
 function secondaryMetric(label: string, value: string): string {
   return `<td width="25%" valign="top" style="padding:14px 4px 2px 0">
-    <div style="font-family:${EMAIL_SERIF};color:${INK};font-size:19px;line-height:1.1">${escapeHtml(value)}</div>
-    <div style="font-family:${EMAIL_SANS};color:${FAINT};font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-top:5px">${escapeHtml(label)}</div>
+    <div style="font-family:${EMAIL_SANS};color:${MUTED};font-size:11px">${escapeHtml(label)}</div>
+    <div style="font-family:${EMAIL_SANS};color:${INK};font-size:18px;font-weight:700;line-height:1.1;margin-top:5px">${escapeHtml(value)}</div>
   </td>`;
 }
 
@@ -475,9 +471,9 @@ export function renderAnalyticsDigestHtml(digest: AnalyticsDigest, test: boolean
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${digest.reportDay}T12:00:00Z`));
-  const fallbackNotice =
+  const fallbackNote =
     digest.dataSource === "utc-fallback"
-      ? `<div style="margin-top:20px;padding:2px 0 2px 14px;border-left:3px solid #b08427;font-family:${EMAIL_SANS};color:${MUTED};font-size:12px;line-height:1.6">Historical fallback: hourly Eastern coverage was not available for this date, so visitor, page, and event totals use the existing UTC daily aggregates. Future reports use exact Eastern-day windows.</div>`
+      ? `<br>Historical visitor, page, and event totals for this date use UTC daily aggregates.`
       : "";
   const adminUrl = `${process.env.PUBLIC_BASE_URL || "https://teslanav.com"}/admin`;
 
@@ -489,21 +485,18 @@ export function renderAnalyticsDigestHtml(digest: AnalyticsDigest, test: boolean
       <tr><td style="height:3px;background:${RED};font-size:1px;line-height:3px">&nbsp;</td></tr>
       <tr><td style="padding:34px 30px 38px">
 
-        <div style="font-family:${EMAIL_SANS};color:${RED};font-size:12px;font-weight:800;letter-spacing:.22em;text-transform:uppercase">TeslaNav</div>
-        <div style="font-family:${EMAIL_SANS};color:${FAINT};font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;margin-top:7px">${test ? "Test &middot; " : ""}Daily analytics report</div>
-        <div style="font-family:${EMAIL_SERIF};color:${INK};font-size:30px;line-height:1.15;margin-top:16px">${escapeHtml(reportDate)}</div>
-        <div style="font-family:${EMAIL_SANS};color:${MUTED};font-size:12px;margin-top:8px">Previous day &middot; ${escapeHtml(digest.timeZone)}</div>
-        ${fallbackNotice}
+        <div style="font-family:${EMAIL_SANS};color:${RED};font-size:14px;font-weight:700">${test ? "TeslaNav test" : "TeslaNav"}</div>
+        <div style="font-family:${EMAIL_SANS};color:${INK};font-size:28px;line-height:1.15;font-weight:700;margin-top:16px">${escapeHtml(reportDate)}</div>
 
         <div style="border-top:2px solid ${RULE_STRONG};margin-top:26px"></div>
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
           <tr>
-            ${heroMetric("Visitors", formatNumber(digest.summary.visitors), changeLabel(digest.summary.visitors, digest.previousSummary.visitors), "left", false)}
-            ${heroMetric("Pageviews", formatNumber(digest.summary.pageviews), changeLabel(digest.summary.pageviews, digest.previousSummary.pageviews), "right", false)}
+            ${heroMetric("Visitors", formatNumber(digest.summary.visitors), "left", false)}
+            ${heroMetric("Pageviews", formatNumber(digest.summary.pageviews), "right", false)}
           </tr>
           <tr>
-            ${heroMetric("Sessions", formatNumber(digest.summary.sessions), changeLabel(digest.summary.sessions, digest.previousSummary.sessions), "left", true)}
-            ${heroMetric("Engaged time", formatDuration(digest.summary.activeSeconds), changeLabel(digest.summary.activeSeconds, digest.previousSummary.activeSeconds), "right", true)}
+            ${heroMetric("Sessions", formatNumber(digest.summary.sessions), "left", true)}
+            ${heroMetric("Engaged time", formatDuration(digest.summary.activeSeconds), "right", true)}
           </tr>
         </table>
 
@@ -518,13 +511,11 @@ export function renderAnalyticsDigestHtml(digest: AnalyticsDigest, test: boolean
 
         <div style="margin-top:36px">
           ${sectionHeading("Last 14 days")}
-          <div style="font-family:${EMAIL_SANS};color:${FAINT};font-size:11px;line-height:1.5;margin-top:8px">Unique visitors per day.</div>
           <div style="margin-top:14px">${dailyBars(digest.dailyTrend)}</div>
         </div>
 
         <div style="margin-top:32px">
           ${sectionHeading("Retention")}
-          <div style="font-family:${EMAIL_SANS};color:${FAINT};font-size:11px;line-height:1.5;margin-top:8px">Exact-day cohort return; recent visitors are excluded until eligible.</div>
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:2px">${retentionRows(digest.retention)}</table>
         </div>
 
@@ -540,7 +531,7 @@ export function renderAnalyticsDigestHtml(digest: AnalyticsDigest, test: boolean
         ${rankedSection("Top request routes", digest.topRequests)}
 
         <div style="border-top:1px solid ${RULE};margin-top:38px;padding-top:18px;font-family:${EMAIL_SANS};color:${FAINT};font-size:11px;line-height:1.7;text-align:center">
-          Anonymous first-party analytics only. No location, IP address, or page content is included.<br>
+          Anonymous first-party analytics only. No location, IP address, or page content is included.${fallbackNote}<br>
           <a href="${escapeHtml(adminUrl)}" style="color:${RED};text-decoration:underline">Open TeslaNav Admin</a>
         </div>
 
