@@ -231,7 +231,7 @@ export function useWazeAlerts({
       let retryScheduled = false;
 
       const scheduleQuickRetry = (delayMs: number) => {
-        if (quickRetryCount.current >= 3) return;
+        if (quickRetryCount.current >= 5) return;
         quickRetryCount.current += 1;
         retryScheduled = true;
         retryTimer.current = setTimeout(() => {
@@ -287,28 +287,36 @@ export function useWazeAlerts({
         const cacheStatus = response.headers.get("X-Cache");
 
         if (currentRequestId !== requestId.current) return;
-        
-        // Replace older tiles fully superseded by this response.
-        cleanExpiredTiles();
-        tileCache.current = tileCache.current.filter(
-          (tile) => !isViewportContained(tile.bounds, expandedBounds)
-        );
-        tileCache.current.push({
-          bounds: expandedBounds,
-          alerts: fetchedAlerts,
-          fetchedAt: Date.now(),
-        });
-        
-        // Limit cache size (keep last 10 tiles)
-        if (tileCache.current.length > 10) {
-          tileCache.current = tileCache.current.slice(-10);
+
+        if (cacheStatus === "MISS") {
+          const retryAfter = Number(response.headers.get("Retry-After"));
+          const delayMs = Number.isFinite(retryAfter)
+            ? Math.min(Math.max(retryAfter * 1000, 1000), 10000)
+            : 2000;
+          scheduleQuickRetry(delayMs);
+          return;
         }
         
-        // Update dev visualization state
-        updateCachedTileBoundsState();
-        
-        // Update alerts (merge from all overlapping cached tiles)
-        setAlerts(getAlertsFromCache(viewportBounds));
+        // A stale empty response is provisional. Do not let it suppress the
+        // follow-up request that may contain the newly refreshed alert set.
+        if (cacheStatus !== "STALE" || fetchedAlerts.length > 0) {
+          cleanExpiredTiles();
+          tileCache.current = tileCache.current.filter(
+            (tile) => !isViewportContained(tile.bounds, expandedBounds)
+          );
+          tileCache.current.push({
+            bounds: expandedBounds,
+            alerts: fetchedAlerts,
+            fetchedAt: Date.now(),
+          });
+
+          if (tileCache.current.length > 10) {
+            tileCache.current = tileCache.current.slice(-10);
+          }
+
+          updateCachedTileBoundsState();
+          setAlerts(getAlertsFromCache(viewportBounds));
+        }
         handleSuccess();
         if (cacheStatus === "STALE") {
           scheduleQuickRetry(2000);

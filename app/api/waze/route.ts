@@ -15,7 +15,7 @@ import type { WazeAlert } from "@/types/waze";
  * feed when WAZE_RELAY_SECRET is configured.
  *
  * On a cache miss we record the requested bounds (the userscript polls for
- * them) and return 503 so the client keeps its previous alerts and retries.
+ * them) and return 202 so the client keeps its previous alerts and retries.
  */
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(
     { error: "Alerts are warming up", alerts: [] },
     {
-      status: 503,
+      status: 202,
       headers: {
         "Cache-Control": "no-store",
         "Retry-After": "2",

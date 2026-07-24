@@ -49,6 +49,7 @@ export interface WazeRtSnapshot {
   bbox: MapBounds;
   fetchedAt: number;
   source: "waze-rt";
+  emptyConfirmed?: boolean;
 }
 
 interface DecodedElement {
@@ -480,7 +481,7 @@ class WazeRtProvider {
   private readonly session: WazeRtSession;
   private readonly alerts = new Map<string, WazeAlert>();
   private refreshPromise: Promise<void> | null = null;
-  private pendingBounds: MapBounds | null = null;
+  private readonly pendingRefreshes = new Map<string, MapBounds>();
   private activeRefreshKey: string | null = null;
   private lastCenter: { lat: number; lon: number } | null = null;
   private appliedGeneration = 0;
@@ -534,9 +535,13 @@ class WazeRtProvider {
       .finally(() => {
         this.refreshPromise = null;
         this.activeRefreshKey = null;
-        const pending = this.pendingBounds;
-        this.pendingBounds = null;
-        if (pending) this.startRefresh(pending);
+        const pending = this.pendingRefreshes.entries().next().value as
+          | [string, MapBounds]
+          | undefined;
+        if (pending) {
+          this.pendingRefreshes.delete(pending[0]);
+          this.startRefresh(pending[1]);
+        }
       });
   }
 
@@ -548,12 +553,17 @@ class WazeRtProvider {
       // instead of silently dropping it while another location refreshes.
       if (
         refreshKey === this.activeRefreshKey ||
-        (this.pendingBounds &&
-          refreshKey === this.spatialSnapshotKey(this.pendingBounds))
+        this.pendingRefreshes.has(refreshKey)
       ) {
         return;
       }
-      this.pendingBounds = expanded;
+      // Preserve each waiting area instead of allowing the busiest client to
+      // overwrite the only pending slot. Bound the queue as a safety valve.
+      if (this.pendingRefreshes.size >= 64) {
+        const oldest = this.pendingRefreshes.keys().next().value as string | undefined;
+        if (oldest) this.pendingRefreshes.delete(oldest);
+      }
+      this.pendingRefreshes.set(refreshKey, expanded);
       return;
     }
     this.startRefresh(expanded);
@@ -601,16 +611,36 @@ class WazeRtProvider {
         }
       }
 
+      const spatialKey = this.spatialSnapshotKey(bounds);
+      const previousRaw = await redis.get(spatialKey);
+      let previous: WazeRtSnapshot | null = null;
+      if (previousRaw) {
+        try {
+          previous = JSON.parse(previousRaw) as WazeRtSnapshot;
+        } catch {
+          previous = null;
+        }
+      }
+      const snapshotAlerts = [...this.alerts.values()];
+      const alertsInBounds = filterToBounds(snapshotAlerts, bounds);
+      const previousAlertsInBounds = previous
+        ? filterToBounds(previous.alerts, bounds)
+        : [];
       const snapshot: WazeRtSnapshot = {
-        alerts: [...this.alerts.values()],
+        alerts: snapshotAlerts,
         bbox: bounds,
         fetchedAt: Date.now(),
         source: "waze-rt",
+        emptyConfirmed:
+          alertsInBounds.length === 0 &&
+          previousAlertsInBounds.length === 0 &&
+          previous !== null &&
+          contains(previous.bbox, bounds),
       };
       const serialized = JSON.stringify(snapshot);
       await redis
         .multi()
-        .set(this.spatialSnapshotKey(bounds), serialized, "EX", SNAPSHOT_TTL_SECONDS)
+        .set(spatialKey, serialized, "EX", SNAPSHOT_TTL_SECONDS)
         .set(this.snapshotKey(), serialized, "EX", SNAPSHOT_TTL_SECONDS)
         .exec();
       this.lastCenter = center;
@@ -653,16 +683,27 @@ export async function getWazeRtAlerts(bounds: MapBounds): Promise<{
   const snapshot = await provider.getSnapshot(bounds);
   const ageMs = snapshot ? Date.now() - snapshot.fetchedAt : null;
   const covers = snapshot ? contains(snapshot.bbox, bounds) : false;
-  const fresh = snapshot && covers && ageMs !== null && ageMs < SOFT_TTL_MS;
+  const filteredAlerts = snapshot ? filterToBounds(snapshot.alerts, bounds) : [];
+  const usable = snapshot
+    ? filteredAlerts.length > 0 || snapshot.emptyConfirmed === true
+    : false;
+  const fresh =
+    snapshot && covers && usable && ageMs !== null && ageMs < SOFT_TTL_MS;
 
   if (!fresh) provider.refresh(bounds);
 
-  if (!snapshot || !covers || ageMs === null || ageMs >= HARD_TTL_MS) {
+  if (
+    !snapshot ||
+    !covers ||
+    !usable ||
+    ageMs === null ||
+    ageMs >= HARD_TTL_MS
+  ) {
     return { alerts: [], cache: "MISS", ageMs };
   }
 
   return {
-    alerts: filterToBounds(snapshot.alerts, bounds),
+    alerts: filteredAlerts,
     cache: fresh ? "HIT" : "STALE",
     ageMs,
   };
