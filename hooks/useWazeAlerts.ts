@@ -8,7 +8,8 @@ interface UseWazeAlertsOptions {
   enabled?: boolean;
   refreshInterval?: number; // milliseconds
   debounceMs?: number;
-  bufferMultiplier?: number; // How much larger to fetch than viewport (e.g., 2 = 2x viewport size)
+  bufferWidthMultiplier?: number;
+  bufferHeightMultiplier?: number;
   cacheTTL?: number; // How long cached tiles are valid (milliseconds)
   maxRequestsPerMinute?: number;
   minZoomLevel?: number; // minimum zoom level to fetch (prevents overloading servers when zoomed out)
@@ -21,15 +22,17 @@ interface CachedTile {
   fetchedAt: number;
 }
 
-// Expand bounds by a multiplier (e.g., 2x means 50% padding on each side)
-function expandBounds(bounds: MapBounds, multiplier: number): MapBounds {
+// Expand bounds independently by width and height around the viewport center.
+function expandBounds(
+  bounds: MapBounds,
+  widthMultiplier: number,
+  heightMultiplier: number
+): MapBounds {
   const width = bounds.east - bounds.west;
   const height = bounds.north - bounds.south;
-  
-  // A multiplier of 2 adds 50% per side: 2x each dimension, 4x total area.
-  const paddingFactor = (multiplier - 1) / 2;
-  const horizontalPadding = width * paddingFactor;
-  const verticalPadding = height * paddingFactor;
+
+  const horizontalPadding = width * ((widthMultiplier - 1) / 2);
+  const verticalPadding = height * ((heightMultiplier - 1) / 2);
   
   return {
     west: bounds.west - horizontalPadding,
@@ -65,7 +68,8 @@ export function useWazeAlerts({
   enabled = true,
   refreshInterval = 30000, // 30 seconds - safety-critical data needs frequent updates
   debounceMs = 250, // 250ms - snappy response, server caching handles the rest
-  bufferMultiplier = 2, // Fetch 2x each dimension (4x area) for nearby panning
+  bufferWidthMultiplier = 2,
+  bufferHeightMultiplier = 3,
   cacheTTL = 60000, // 60 seconds - cached tiles are valid for this long
   maxRequestsPerMinute = 15, // Allow more requests for safety-critical updates
   minZoomLevel = 10, // Don't fetch when zoomed out past city level to avoid overloading servers
@@ -217,7 +221,11 @@ export function useWazeAlerts({
       }
 
       // Expand bounds to fetch a larger area than the viewport
-      const expandedBounds = expandBounds(viewportBounds, bufferMultiplier);
+      const expandedBounds = expandBounds(
+        viewportBounds,
+        bufferWidthMultiplier,
+        bufferHeightMultiplier
+      );
       if (force && activeRequest.current) return;
 
       activeRequest.current?.controller.abort();
@@ -253,7 +261,9 @@ export function useWazeAlerts({
           top: expandedBounds.north.toString(),
         });
 
-        console.log(`Waze fetching ${bufferMultiplier}x viewport dimensions for smoother panning`);
+        console.log(
+          `Waze fetching ${bufferWidthMultiplier}Wx${bufferHeightMultiplier}H viewport area for smoother panning`
+        );
         const timeout = setTimeout(() => controller.abort(), 15000);
         const response = await fetch(`/api/waze?${params}`, {
           signal: controller.signal,
@@ -335,7 +345,7 @@ export function useWazeAlerts({
         }
       }
     },
-    [enabled, canMakeRequest, findCachedTile, getAlertsFromCache, cleanExpiredTiles, updateCachedTileBoundsState, recordRequest, handleRateLimitError, handleSuccess, minZoomLevel, bufferMultiplier]
+    [enabled, canMakeRequest, findCachedTile, getAlertsFromCache, cleanExpiredTiles, updateCachedTileBoundsState, recordRequest, handleRateLimitError, handleSuccess, minZoomLevel, bufferWidthMultiplier, bufferHeightMultiplier]
   );
 
   // Debounced fetch when bounds change
