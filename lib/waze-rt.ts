@@ -20,6 +20,7 @@ const HARD_TTL_MS = 5 * 60_000;
 const SNAPSHOT_TTL_SECONDS = 10 * 60;
 const REGISTRATION_COOLDOWN_SECONDS = 10 * 60;
 const REFRESH_BUDGET_MS = 12_000;
+const MISS_WAIT_MS = 2_000;
 const TELEPORT_KM = 25;
 
 type Region = "na" | "il" | "row";
@@ -89,6 +90,12 @@ interface DecodedBatch {
   element?: DecodedElement[];
 }
 
+interface PendingRefresh {
+  bounds: MapBounds;
+  promise: Promise<void>;
+  resolve: () => void;
+}
+
 class SessionExpiredError extends Error {}
 class AccountRejectedError extends Error {}
 class RetryCommandError extends Error {}
@@ -136,6 +143,38 @@ function filterToBounds(alerts: WazeAlert[], bounds: MapBounds): WazeAlert[] {
     const { x, y } = alert.location;
     return x >= bounds.west && x <= bounds.east && y >= bounds.south && y <= bounds.north;
   });
+}
+
+function evaluateSnapshot(snapshot: WazeRtSnapshot | null, bounds: MapBounds) {
+  const ageMs = snapshot ? Date.now() - snapshot.fetchedAt : null;
+  const covers = snapshot ? contains(snapshot.bbox, bounds) : false;
+  const alerts = snapshot ? filterToBounds(snapshot.alerts, bounds) : [];
+  const usable = snapshot
+    ? alerts.length > 0 || snapshot.emptyConfirmed === true
+    : false;
+  return {
+    alerts,
+    ageMs,
+    covers,
+    usable,
+    fresh:
+      snapshot !== null &&
+      covers &&
+      usable &&
+      ageMs !== null &&
+      ageMs < SOFT_TTL_MS,
+  };
+}
+
+async function waitAtMost(task: Promise<void>, timeoutMs: number): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    task,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+  if (timer) clearTimeout(timer);
 }
 
 function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
@@ -481,7 +520,7 @@ class WazeRtProvider {
   private readonly session: WazeRtSession;
   private readonly alerts = new Map<string, WazeAlert>();
   private refreshPromise: Promise<void> | null = null;
-  private readonly pendingRefreshes = new Map<string, MapBounds>();
+  private readonly pendingRefreshes = new Map<string, PendingRefresh>();
   private activeRefreshKey: string | null = null;
   private lastCenter: { lat: number; lon: number } | null = null;
   private appliedGeneration = 0;
@@ -522,7 +561,10 @@ class WazeRtProvider {
     return snapshots.sort((a, b) => b.fetchedAt - a.fetchedAt)[0] ?? null;
   }
 
-  private startRefresh(bounds: MapBounds): void {
+  private startRefresh(
+    bounds: MapBounds,
+    queuedRefresh?: PendingRefresh
+  ): Promise<void> {
     this.activeRefreshKey = this.spatialSnapshotKey(bounds);
     this.refreshPromise = this.runRefresh(bounds)
       .catch((error) => {
@@ -533,40 +575,53 @@ class WazeRtProvider {
         });
       })
       .finally(() => {
+        queuedRefresh?.resolve();
         this.refreshPromise = null;
         this.activeRefreshKey = null;
         const pending = this.pendingRefreshes.entries().next().value as
-          | [string, MapBounds]
+          | [string, PendingRefresh]
           | undefined;
         if (pending) {
           this.pendingRefreshes.delete(pending[0]);
-          this.startRefresh(pending[1]);
+          this.startRefresh(pending[1].bounds, pending[1]);
         }
       });
+    return this.refreshPromise;
   }
 
-  refresh(bounds: MapBounds): void {
+  refresh(bounds: MapBounds): Promise<void> {
     const expanded = expandedBounds(bounds);
     const refreshKey = this.spatialSnapshotKey(expanded);
     if (this.refreshPromise) {
       // A regional session is serial; retain the newest uncovered request
       // instead of silently dropping it while another location refreshes.
-      if (
-        refreshKey === this.activeRefreshKey ||
-        this.pendingRefreshes.has(refreshKey)
-      ) {
-        return;
+      if (refreshKey === this.activeRefreshKey) {
+        return this.refreshPromise;
       }
+      const existing = this.pendingRefreshes.get(refreshKey);
+      if (existing) return existing.promise;
+
       // Preserve each waiting area instead of allowing the busiest client to
       // overwrite the only pending slot. Bound the queue as a safety valve.
       if (this.pendingRefreshes.size >= 64) {
         const oldest = this.pendingRefreshes.keys().next().value as string | undefined;
-        if (oldest) this.pendingRefreshes.delete(oldest);
+        if (oldest) {
+          this.pendingRefreshes.get(oldest)?.resolve();
+          this.pendingRefreshes.delete(oldest);
+        }
       }
-      this.pendingRefreshes.set(refreshKey, expanded);
-      return;
+      let resolve = () => {};
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      this.pendingRefreshes.set(refreshKey, {
+        bounds: expanded,
+        promise,
+        resolve,
+      });
+      return promise;
     }
-    this.startRefresh(expanded);
+    return this.startRefresh(expanded);
   }
 
   private async runRefresh(bounds: MapBounds): Promise<void> {
@@ -680,31 +735,53 @@ export async function getWazeRtAlerts(bounds: MapBounds): Promise<{
 }> {
   const center = centerOf(bounds);
   const provider = providerFor(getWazeRegion(center.lat, center.lon));
-  const snapshot = await provider.getSnapshot(bounds);
-  const ageMs = snapshot ? Date.now() - snapshot.fetchedAt : null;
-  const covers = snapshot ? contains(snapshot.bbox, bounds) : false;
-  const filteredAlerts = snapshot ? filterToBounds(snapshot.alerts, bounds) : [];
-  const usable = snapshot
-    ? filteredAlerts.length > 0 || snapshot.emptyConfirmed === true
-    : false;
-  const fresh =
-    snapshot && covers && usable && ageMs !== null && ageMs < SOFT_TTL_MS;
+  let snapshot = await provider.getSnapshot(bounds);
+  let evaluated = evaluateSnapshot(snapshot, bounds);
 
-  if (!fresh) provider.refresh(bounds);
-
-  if (
-    !snapshot ||
-    !covers ||
-    !usable ||
-    ageMs === null ||
-    ageMs >= HARD_TTL_MS
-  ) {
-    return { alerts: [], cache: "MISS", ageMs };
+  if (evaluated.fresh) {
+    return {
+      alerts: evaluated.alerts,
+      cache: "HIT",
+      ageMs: evaluated.ageMs,
+    };
   }
 
-  return {
-    alerts: filteredAlerts,
-    cache: fresh ? "HIT" : "STALE",
-    ageMs,
-  };
+  const usableStale =
+    evaluated.covers &&
+    evaluated.usable &&
+    evaluated.ageMs !== null &&
+    evaluated.ageMs < HARD_TTL_MS;
+  if (usableStale) {
+    void provider.refresh(bounds);
+    return {
+      alerts: evaluated.alerts,
+      cache: "STALE",
+      ageMs: evaluated.ageMs,
+    };
+  }
+
+  const deadline = Date.now() + MISS_WAIT_MS;
+  // A first cold query can legitimately return no deltas. Allow one additional
+  // pass within the same request to confirm empty or receive the alert set.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await waitAtMost(provider.refresh(bounds), remaining);
+    snapshot = await provider.getSnapshot(bounds);
+    evaluated = evaluateSnapshot(snapshot, bounds);
+    if (
+      evaluated.covers &&
+      evaluated.usable &&
+      evaluated.ageMs !== null &&
+      evaluated.ageMs < HARD_TTL_MS
+    ) {
+      return {
+        alerts: evaluated.alerts,
+        cache: evaluated.fresh ? "HIT" : "STALE",
+        ageMs: evaluated.ageMs,
+      };
+    }
+  }
+
+  return { alerts: [], cache: "MISS", ageMs: evaluated.ageMs };
 }
