@@ -170,7 +170,6 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const userMarkerElRef = useRef<HTMLDivElement | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const initialCenterSet = useRef(false);
   const isFollowMode = useRef(followMode);
 
   // Track if we should auto-center (user hasn't panned away)
@@ -572,18 +571,6 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Auto-center on user location (only once on initial load)
-  useEffect(() => {
-    if (!map.current || !mapLoaded || !userLocation || initialCenterSet.current) return;
-
-    map.current.flyTo({
-      center: [userLocation.longitude, userLocation.latitude],
-      zoom: 15,
-      duration: 1000,
-    });
-    initialCenterSet.current = true;
-  }, [userLocation, mapLoaded]);
 
   // Update target position for animation when userLocation changes
   useEffect(() => {

@@ -5,6 +5,7 @@ import type { WazeAlert, MapBounds } from "@/types/waze";
 
 interface UseWazeAlertsOptions {
   bounds: MapBounds | null;
+  enabled?: boolean;
   refreshInterval?: number; // milliseconds
   debounceMs?: number;
   bufferMultiplier?: number; // How much larger to fetch than viewport (e.g., 2 = 2x viewport size)
@@ -25,7 +26,7 @@ function expandBounds(bounds: MapBounds, multiplier: number): MapBounds {
   const width = bounds.east - bounds.west;
   const height = bounds.north - bounds.south;
   
-  // Calculate padding (multiplier of 2 means we add 50% on each side = 2x total area)
+  // A multiplier of 2 adds 50% per side: 2x each dimension, 4x total area.
   const paddingFactor = (multiplier - 1) / 2;
   const horizontalPadding = width * paddingFactor;
   const verticalPadding = height * paddingFactor;
@@ -61,9 +62,10 @@ function boundsOverlap(a: MapBounds, b: MapBounds): boolean {
 
 export function useWazeAlerts({
   bounds,
+  enabled = true,
   refreshInterval = 30000, // 30 seconds - safety-critical data needs frequent updates
   debounceMs = 250, // 250ms - snappy response, server caching handles the rest
-  bufferMultiplier = 4, // Fetch 4x the viewport size (~89 sq miles) - optimal based on Waze API testing
+  bufferMultiplier = 2, // Fetch 2x each dimension (4x area) for nearby panning
   cacheTTL = 60000, // 60 seconds - cached tiles are valid for this long
   maxRequestsPerMinute = 15, // Allow more requests for safety-critical updates
   minZoomLevel = 10, // Don't fetch when zoomed out past city level to avoid overloading servers
@@ -75,8 +77,12 @@ export function useWazeAlerts({
   const [cachedTileBounds, setCachedTileBounds] = useState<Array<{ bounds: MapBounds; ageMs: number }>>([]);
   
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const retryTimer = useRef<NodeJS.Timeout | null>(null);
   const tileCache = useRef<CachedTile[]>([]); // Cache of fetched tiles with TTL
   const lastBounds = useRef<MapBounds | null>(null);
+  const activeRequest = useRef<{ id: number; controller: AbortController } | null>(null);
+  const requestId = useRef(0);
+  const quickRetryCount = useRef(0);
   
   // Rate limiting state
   const requestTimestamps = useRef<number[]>([]);
@@ -126,9 +132,9 @@ export function useWazeAlerts({
       cleanExpiredTiles();
       
       // Find all tiles that overlap with viewport
-      const overlappingTiles = tileCache.current.filter((tile) =>
-        boundsOverlap(viewport, tile.bounds)
-      );
+      const overlappingTiles = tileCache.current
+        .filter((tile) => boundsOverlap(viewport, tile.bounds))
+        .sort((a, b) => b.fetchedAt - a.fetchedAt);
       
       // Merge alerts, deduplicating by ID
       const alertMap = new Map<string, WazeAlert>();
@@ -184,6 +190,8 @@ export function useWazeAlerts({
 
   const fetchAlerts = useCallback(
     async (viewportBounds: MapBounds, force: boolean = false) => {
+      if (!enabled) return;
+
       // Check zoom level - don't fetch if zoomed out too far
       if (viewportBounds.zoom !== undefined && viewportBounds.zoom < minZoomLevel) {
         console.log(`Waze request skipped: zoom level ${viewportBounds.zoom.toFixed(1)} below minimum ${minZoomLevel}`);
@@ -210,6 +218,28 @@ export function useWazeAlerts({
 
       // Expand bounds to fetch a larger area than the viewport
       const expandedBounds = expandBounds(viewportBounds, bufferMultiplier);
+      if (force && activeRequest.current) return;
+
+      activeRequest.current?.controller.abort();
+      const controller = new AbortController();
+      const currentRequestId = ++requestId.current;
+      activeRequest.current = { id: currentRequestId, controller };
+      if (retryTimer.current) {
+        clearTimeout(retryTimer.current);
+        retryTimer.current = null;
+      }
+      let retryScheduled = false;
+
+      const scheduleQuickRetry = (delayMs: number) => {
+        if (quickRetryCount.current >= 3) return;
+        quickRetryCount.current += 1;
+        retryScheduled = true;
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          const retryBounds = lastBounds.current;
+          if (retryBounds) fetchAlerts(retryBounds, true);
+        }, delayMs);
+      };
 
       try {
         setLoading(true);
@@ -223,8 +253,14 @@ export function useWazeAlerts({
           top: expandedBounds.north.toString(),
         });
 
-        console.log(`Waze fetching ${bufferMultiplier}x viewport area for smoother panning`);
-        const response = await fetch(`/api/waze?${params}`);
+        console.log(`Waze fetching ${bufferMultiplier}x viewport dimensions for smoother panning`);
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        const response = await fetch(`/api/waze?${params}`, {
+          signal: controller.signal,
+          cache: force ? "no-store" : "default",
+        }).finally(() => clearTimeout(timeout));
+
+        if (currentRequestId !== requestId.current) return;
 
         if (response.status === 429) {
           // Rate limited by server
@@ -232,15 +268,31 @@ export function useWazeAlerts({
           throw new Error("Rate limited");
         }
 
+        if (response.status === 503) {
+          const retryAfter = Number(response.headers.get("Retry-After"));
+          const delayMs = Number.isFinite(retryAfter)
+            ? Math.min(Math.max(retryAfter * 1000, 1000), 10000)
+            : 2000;
+          setError(null);
+          scheduleQuickRetry(delayMs);
+          return;
+        }
+
         if (!response.ok) {
-          throw new Error("Failed to fetch Waze alerts");
+          throw new Error(`Failed to fetch Waze alerts (${response.status})`);
         }
 
         const data = await response.json();
         const fetchedAlerts: WazeAlert[] = data.alerts || [];
+        const cacheStatus = response.headers.get("X-Cache");
+
+        if (currentRequestId !== requestId.current) return;
         
-        // Add to tile cache
+        // Replace older tiles fully superseded by this response.
         cleanExpiredTiles();
+        tileCache.current = tileCache.current.filter(
+          (tile) => !isViewportContained(tile.bounds, expandedBounds)
+        );
         tileCache.current.push({
           bounds: expandedBounds,
           alerts: fetchedAlerts,
@@ -258,18 +310,29 @@ export function useWazeAlerts({
         // Update alerts (merge from all overlapping cached tiles)
         setAlerts(getAlertsFromCache(viewportBounds));
         handleSuccess();
+        if (cacheStatus === "STALE") {
+          scheduleQuickRetry(2000);
+        } else {
+          quickRetryCount.current = 0;
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unknown error");
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (currentRequestId === requestId.current) {
+          setError(err instanceof Error ? err.message : "Unknown error");
+        }
       } finally {
-        setLoading(false);
+        if (activeRequest.current?.id === currentRequestId) {
+          activeRequest.current = null;
+          setLoading(retryScheduled);
+        }
       }
     },
-    [canMakeRequest, findCachedTile, getAlertsFromCache, cleanExpiredTiles, updateCachedTileBoundsState, recordRequest, handleRateLimitError, handleSuccess, minZoomLevel, bufferMultiplier]
+    [enabled, canMakeRequest, findCachedTile, getAlertsFromCache, cleanExpiredTiles, updateCachedTileBoundsState, recordRequest, handleRateLimitError, handleSuccess, minZoomLevel, bufferMultiplier]
   );
 
   // Debounced fetch when bounds change
   useEffect(() => {
-    if (!bounds) return;
+    if (!enabled || !bounds) return;
 
     // Clear existing timer
     if (debounceTimer.current) {
@@ -278,6 +341,7 @@ export function useWazeAlerts({
 
     // Store the latest bounds for periodic refresh
     lastBounds.current = bounds;
+    quickRetryCount.current = 0;
 
     // Debounce the fetch - only fetch if movement is significant
     debounceTimer.current = setTimeout(() => {
@@ -289,10 +353,11 @@ export function useWazeAlerts({
         clearTimeout(debounceTimer.current);
       }
     };
-  }, [bounds, debounceMs, fetchAlerts]);
+  }, [enabled, bounds, debounceMs, fetchAlerts]);
 
   // Periodic refresh - uses force=true to bypass movement check
   useEffect(() => {
+    if (!enabled) return;
     const interval = setInterval(() => {
       if (lastBounds.current) {
         fetchAlerts(lastBounds.current, true);
@@ -300,7 +365,24 @@ export function useWazeAlerts({
     }, refreshInterval);
 
     return () => clearInterval(interval);
-  }, [refreshInterval, fetchAlerts]);
+  }, [enabled, refreshInterval, fetchAlerts]);
+
+  useEffect(() => {
+    if (enabled) return;
+    activeRequest.current?.controller.abort();
+    activeRequest.current = null;
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
+  }, [enabled]);
+
+  useEffect(() => {
+    return () => {
+      activeRequest.current?.controller.abort();
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+    };
+  }, []);
 
   return {
     alerts,

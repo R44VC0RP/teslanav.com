@@ -115,7 +115,10 @@ export default function Home() {
   const { latitude, longitude, heading, effectiveHeading, speed, error: geoError } = useGeolocation();
   const solarTheme = useSolarTheme(latitude, longitude);
   const isDarkMode = solarTheme.isDark;
-  const { alerts, loading: alertsLoading, cachedTileBounds } = useWazeAlerts({ bounds });
+  const { alerts, loading: alertsLoading, cachedTileBounds } = useWazeAlerts({
+    bounds,
+    enabled: showWazeAlerts,
+  });
 
   // Calculate distance between two coordinates in meters (Haversine formula)
   const getDistanceInMeters = useCallback((lat1: number, lng1: number, lat2: number, lng2: number): number => {
@@ -451,7 +454,7 @@ export default function Home() {
         key={`${mapStyle}-${isDarkMode ? "night" : "day"}`}
         ref={mapRef}
         center={[longitude, latitude]}
-        zoom={14}
+        zoom={15}
         isDarkMode={isDarkMode}
         styleUrl={effectiveStyleUrl}
         satelliteTilesUrl={mapStyleDefinition.satelliteTilesUrl}

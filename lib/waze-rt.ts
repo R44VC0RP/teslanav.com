@@ -480,6 +480,8 @@ class WazeRtProvider {
   private readonly session: WazeRtSession;
   private readonly alerts = new Map<string, WazeAlert>();
   private refreshPromise: Promise<void> | null = null;
+  private pendingBounds: MapBounds | null = null;
+  private activeRefreshKey: string | null = null;
   private lastCenter: { lat: number; lon: number } | null = null;
   private appliedGeneration = 0;
   private readonly instanceId = randomUUID();
@@ -492,19 +494,36 @@ class WazeRtProvider {
     return `waze:rt:snapshot:${this.region}`;
   }
 
-  async getSnapshot(): Promise<WazeRtSnapshot | null> {
-    const raw = await getRedisClient().get(this.snapshotKey());
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as WazeRtSnapshot;
-    } catch {
-      return null;
-    }
+  private spatialSnapshotKey(bounds: MapBounds): string {
+    const center = centerOf(bounds);
+    const latCell = Math.floor((center.lat + 90) * 20);
+    const lonCell = Math.floor((center.lon + 180) * 20);
+    return `${this.snapshotKey()}:${latCell}:${lonCell}`;
   }
 
-  refresh(bounds: MapBounds): void {
-    if (this.refreshPromise) return;
-    this.refreshPromise = this.runRefresh(expandedBounds(bounds))
+  async getSnapshot(bounds: MapBounds): Promise<WazeRtSnapshot | null> {
+    const raws = await getRedisClient().mget(
+      this.spatialSnapshotKey(bounds),
+      this.snapshotKey()
+    );
+    const snapshots = raws.flatMap((raw) => {
+      if (!raw) return [];
+      try {
+        return [JSON.parse(raw) as WazeRtSnapshot];
+      } catch {
+        return [];
+      }
+    });
+    const covering = snapshots
+      .filter((snapshot) => contains(snapshot.bbox, bounds))
+      .sort((a, b) => b.fetchedAt - a.fetchedAt);
+    if (covering[0]) return covering[0];
+    return snapshots.sort((a, b) => b.fetchedAt - a.fetchedAt)[0] ?? null;
+  }
+
+  private startRefresh(bounds: MapBounds): void {
+    this.activeRefreshKey = this.spatialSnapshotKey(bounds);
+    this.refreshPromise = this.runRefresh(bounds)
       .catch((error) => {
         console.error(`[WazeRT:${this.region}] refresh failed:`, error);
         logAppEvent("error", "waze-rt", "Alert refresh failed", {
@@ -514,12 +533,35 @@ class WazeRtProvider {
       })
       .finally(() => {
         this.refreshPromise = null;
+        this.activeRefreshKey = null;
+        const pending = this.pendingBounds;
+        this.pendingBounds = null;
+        if (pending) this.startRefresh(pending);
       });
+  }
+
+  refresh(bounds: MapBounds): void {
+    const expanded = expandedBounds(bounds);
+    const refreshKey = this.spatialSnapshotKey(expanded);
+    if (this.refreshPromise) {
+      // A regional session is serial; retain the newest uncovered request
+      // instead of silently dropping it while another location refreshes.
+      if (
+        refreshKey === this.activeRefreshKey ||
+        (this.pendingBounds &&
+          refreshKey === this.spatialSnapshotKey(this.pendingBounds))
+      ) {
+        return;
+      }
+      this.pendingBounds = expanded;
+      return;
+    }
+    this.startRefresh(expanded);
   }
 
   private async runRefresh(bounds: MapBounds): Promise<void> {
     const redis = getRedisClient();
-    const lockKey = `waze:rt:refresh-lock:${this.region}`;
+    const lockKey = `waze:rt:refresh-lock:${this.region}:${this.spatialSnapshotKey(bounds)}`;
     // Worst case is a retried handshake plus several 10.5s long-poll commands.
     const lock = await redis.set(lockKey, this.instanceId, "EX", 90, "NX");
     if (lock !== "OK") return;
@@ -565,7 +607,12 @@ class WazeRtProvider {
         fetchedAt: Date.now(),
         source: "waze-rt",
       };
-      await redis.set(this.snapshotKey(), JSON.stringify(snapshot), "EX", SNAPSHOT_TTL_SECONDS);
+      const serialized = JSON.stringify(snapshot);
+      await redis
+        .multi()
+        .set(this.spatialSnapshotKey(bounds), serialized, "EX", SNAPSHOT_TTL_SECONDS)
+        .set(this.snapshotKey(), serialized, "EX", SNAPSHOT_TTL_SECONDS)
+        .exec();
       this.lastCenter = center;
       console.log(`[WazeRT:${this.region}] cached ${snapshot.alerts.length} alerts`);
     } finally {
@@ -603,14 +650,14 @@ export async function getWazeRtAlerts(bounds: MapBounds): Promise<{
 }> {
   const center = centerOf(bounds);
   const provider = providerFor(getWazeRegion(center.lat, center.lon));
-  const snapshot = await provider.getSnapshot();
+  const snapshot = await provider.getSnapshot(bounds);
   const ageMs = snapshot ? Date.now() - snapshot.fetchedAt : null;
   const covers = snapshot ? contains(snapshot.bbox, bounds) : false;
   const fresh = snapshot && covers && ageMs !== null && ageMs < SOFT_TTL_MS;
 
   if (!fresh) provider.refresh(bounds);
 
-  if (!snapshot || ageMs === null || ageMs >= HARD_TTL_MS) {
+  if (!snapshot || !covers || ageMs === null || ageMs >= HARD_TTL_MS) {
     return { alerts: [], cache: "MISS", ageMs };
   }
 

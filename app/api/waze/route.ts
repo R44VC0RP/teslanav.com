@@ -48,10 +48,27 @@ export async function GET(request: NextRequest) {
   const cacheKey = getAlertsCacheKey(left, right, bottom, top);
 
   const bounds = { west, east, south, north };
-  const [rt, relayed] = await Promise.all([
-    getWazeRtAlerts(bounds),
-    getCachedAlerts<{ alerts?: WazeAlert[] }>(cacheKey),
-  ]);
+  let sources;
+  try {
+    sources = await Promise.all([
+      getWazeRtAlerts(bounds),
+      getCachedAlerts<{ alerts?: WazeAlert[] }>(cacheKey),
+    ]);
+  } catch (error) {
+    console.error("[Waze] Cache read failed:", error);
+    return NextResponse.json(
+      { error: "Alerts are temporarily unavailable", alerts: [] },
+      {
+        status: 503,
+        headers: {
+          "Cache-Control": "no-store",
+          "Retry-After": "2",
+          "X-Cache": "ERROR",
+        },
+      }
+    );
+  }
+  const [rt, relayed] = sources;
 
   // Keep relay demand alive on every active client request, not only misses.
   // This prevents the optional GeoRSS enrichment from expiring while RT data
@@ -75,9 +92,11 @@ export async function GET(request: NextRequest) {
       { alerts },
       {
         headers: {
-          "Cache-Control": "public, max-age=10",
+          "Cache-Control": cache === "HIT" ? "public, max-age=10" : "no-store",
           "X-Cache": cache,
-          ...(rt.ageMs !== null ? { Age: String(Math.floor(rt.ageMs / 1000)) } : {}),
+          ...(rt.ageMs !== null
+            ? { "X-Data-Age": String(Math.floor(rt.ageMs / 1000)) }
+            : {}),
         },
       }
     );
@@ -90,7 +109,7 @@ export async function GET(request: NextRequest) {
       status: 503,
       headers: {
         "Cache-Control": "no-store",
-        "Retry-After": "5",
+        "Retry-After": "2",
         "X-Cache": "MISS",
       },
     }
