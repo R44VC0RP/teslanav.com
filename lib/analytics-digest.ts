@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { getAnalyticsStats, getDb, logAppEvent } from "@/lib/db";
+import {
+  ANALYTICS_START_DAY,
+  getAnalyticsStats,
+  getDb,
+  logAppEvent,
+} from "@/lib/db";
 
 interface Summary {
   visitors: number;
@@ -238,7 +243,7 @@ export function buildAnalyticsDigest(
     3
   );
 
-  const trendStart = shiftDay(reportDay, -13);
+  const trendStart = [shiftDay(reportDay, -13), ANALYTICS_START_DAY].sort().at(-1)!;
   const trendRows = db
     .prepare(
       `SELECT day, COUNT(*) AS visitors
@@ -247,7 +252,13 @@ export function buildAnalyticsDigest(
     )
     .all(trendStart, reportDay) as Array<{ day: string; visitors: number }>;
   const trendByDay = new Map(trendRows.map((row) => [row.day, row.visitors]));
-  const dailyTrend = Array.from({ length: 14 }, (_, index) => {
+  const trendLength =
+    Math.floor(
+      (Date.parse(`${reportDay}T00:00:00Z`) -
+        Date.parse(`${trendStart}T00:00:00Z`)) /
+        86_400_000
+    ) + 1;
+  const dailyTrend = Array.from({ length: Math.max(1, trendLength) }, (_, index) => {
     const day = shiftDay(trendStart, index);
     return { day, visitors: trendByDay.get(day) ?? 0 };
   });

@@ -603,6 +603,13 @@ function rangeStart(daysAgo: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+export const ANALYTICS_START_DAY = "2026-07-23";
+const ANALYTICS_START_AT = Date.parse(`${ANALYTICS_START_DAY}T00:00:00Z`);
+
+function laterDay(first: string, second: string): string {
+  return first > second ? first : second;
+}
+
 export interface AnalyticsStats {
   visitors: {
     activeNow: number;
@@ -631,6 +638,7 @@ export interface AnalyticsStats {
   }>;
   retention: {
     cohortWindowDays: number;
+    startedAt: string;
     rows: Array<{
       dayOffset: number;
       eligibleVisitors: number;
@@ -697,8 +705,10 @@ export function getAnalyticsStats(): AnalyticsStats {
   const db = getDb();
   const now = Date.now();
   const today = utcDay(now);
-  const sevenDays = rangeStart(6);
-  const thirtyDays = rangeStart(29);
+  const sevenDays = laterDay(rangeStart(6), ANALYTICS_START_DAY);
+  const thirtyDays = laterDay(rangeStart(29), ANALYTICS_START_DAY);
+  const analyticsStartAt = Math.max(now - 30 * 86_400_000, ANALYTICS_START_AT);
+  const dailyStart = laterDay(rangeStart(13), ANALYTICS_START_DAY);
   const currentHour = utcHour(now);
   const dayRows = db
     .prepare(
@@ -711,7 +721,7 @@ export function getAnalyticsStats(): AnalyticsStats {
        WHERE day >= ?
        GROUP BY day ORDER BY day`
     )
-    .all(rangeStart(13)) as Array<{
+    .all(dailyStart) as Array<{
       day: string;
       visitors: number;
       sessions: number;
@@ -719,9 +729,15 @@ export function getAnalyticsStats(): AnalyticsStats {
       activeSeconds: number;
     }>;
   const byDay = new Map(dayRows.map((row) => [row.day, row]));
-  const daily = Array.from({ length: 14 }, (_, index) => {
-    const date = new Date();
-    date.setUTCDate(date.getUTCDate() - (13 - index));
+  const dailyStartDate = new Date(`${dailyStart}T00:00:00Z`);
+  const dailyLength =
+    Math.floor(
+      (Date.parse(`${today}T00:00:00Z`) - dailyStartDate.getTime()) /
+        86_400_000
+    ) + 1;
+  const daily = Array.from({ length: Math.max(1, dailyLength) }, (_, index) => {
+    const date = new Date(dailyStartDate);
+    date.setUTCDate(date.getUTCDate() + index);
     const day = date.toISOString().slice(0, 10);
     return byDay.get(day) ?? {
       day,
@@ -742,10 +758,10 @@ export function getAnalyticsStats(): AnalyticsStats {
            SELECT day_offset + 1 FROM offsets WHERE day_offset < 30
          ),
          cohort AS (
-           SELECT visitor_hash,
-                  date(first_seen_at / 1000, 'unixepoch') AS first_day
-           FROM analytics_visitors
-           WHERE date(first_seen_at / 1000, 'unixepoch') >= date(?, '-89 days')
+           SELECT visitor_hash, MIN(day) AS first_day
+           FROM analytics_daily_visitors
+           WHERE day >= ? AND day >= date(?, '-89 days')
+           GROUP BY visitor_hash
          )
        SELECT o.day_offset AS dayOffset,
               COUNT(c.visitor_hash) AS eligibleVisitors,
@@ -759,7 +775,7 @@ export function getAnalyticsStats(): AnalyticsStats {
        GROUP BY o.day_offset
        ORDER BY o.day_offset`
     )
-    .all(today, today) as Array<{
+    .all(ANALYTICS_START_DAY, today, today) as Array<{
       dayOffset: number;
       eligibleVisitors: number;
       returningVisitors: number;
@@ -776,7 +792,7 @@ export function getAnalyticsStats(): AnalyticsStats {
        FROM analytics_visitors WHERE last_seen_at >= ?
        GROUP BY device_type ORDER BY count DESC`
     )
-    .all(now - 30 * 86_400_000) as Array<{ value: string; count: number }>;
+    .all(analyticsStartAt) as Array<{ value: string; count: number }>;
   const topPages = db
     .prepare(
       `SELECT path AS value, SUM(count) AS count
@@ -791,7 +807,7 @@ export function getAnalyticsStats(): AnalyticsStats {
        FROM analytics_sessions WHERE started_at >= ?
        GROUP BY value ORDER BY count DESC LIMIT 10`
     )
-    .all(now - 30 * 86_400_000) as Array<{ value: string; count: number }>;
+    .all(analyticsStartAt) as Array<{ value: string; count: number }>;
   const topEvents = db
     .prepare(
       `SELECT event_name AS name, event_value AS value, SUM(count) AS count
@@ -826,13 +842,25 @@ export function getAnalyticsStats(): AnalyticsStats {
         thirtyDays
       ),
       newThirtyDays: scalar(
-        `SELECT COUNT(*) AS value FROM analytics_visitors WHERE first_seen_at >= ?`,
-        now - 30 * 86_400_000
+        `SELECT COUNT(*) AS value FROM (
+           SELECT visitor_hash, MIN(day) AS first_day
+           FROM analytics_daily_visitors
+           WHERE day >= ?
+           GROUP BY visitor_hash
+           HAVING first_day >= ?
+         )`,
+        ANALYTICS_START_DAY,
+        thirtyDays
       ),
       returningThirtyDays: scalar(
-        `SELECT COUNT(*) AS value FROM analytics_visitors
-         WHERE last_seen_at >= ? AND total_sessions > 1`,
-        now - 30 * 86_400_000
+        `SELECT COUNT(*) AS value FROM (
+           SELECT visitor_hash
+           FROM analytics_daily_visitors
+           WHERE day >= ?
+           GROUP BY visitor_hash
+           HAVING COUNT(DISTINCT day) > 1
+         )`,
+        thirtyDays
       ),
     },
     engagement: {
@@ -855,7 +883,7 @@ export function getAnalyticsStats(): AnalyticsStats {
         scalar(
           `SELECT COALESCE(AVG(active_seconds), 0) AS value
            FROM analytics_sessions WHERE started_at >= ?`,
-          now - 30 * 86_400_000
+          analyticsStartAt
         )
       ),
     },
@@ -874,6 +902,7 @@ export function getAnalyticsStats(): AnalyticsStats {
     daily,
     retention: {
       cohortWindowDays: retentionCohortWindowDays,
+      startedAt: ANALYTICS_START_DAY,
       rows: retentionRows.map((row) => ({
         ...row,
         percentage:

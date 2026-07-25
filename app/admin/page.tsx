@@ -53,6 +53,7 @@ interface UsageData {
     }>;
     retention: {
       cohortWindowDays: number;
+      startedAt: string;
       rows: Array<{
         dayOffset: number;
         eligibleVisitors: number;
@@ -214,10 +215,12 @@ export default function AdminPage() {
               </section>
             </div>
 
-            {/* 14-day activity */}
+            {/* Daily activity */}
             <section className="p-5 rounded-xl bg-white/5 border border-white/10">
               <div className="flex items-center justify-between mb-5">
-                <h2 className="text-xl font-semibold">Visitors · 14 days</h2>
+                <h2 className="text-xl font-semibold">
+                  Visitors · {data.analytics.daily.length} days
+                </h2>
                 <span className="text-xs text-neutral-500">UTC</span>
               </div>
               <DailyBars rows={data.analytics.daily} />
@@ -229,7 +232,7 @@ export default function AdminPage() {
                 <div>
                   <h2 className="text-xl font-semibold">Visitor retention</h2>
                   <p className="text-sm text-neutral-500 mt-1">
-                    Exact UTC-day return · first seen in the last {data.analytics.retention.cohortWindowDays} days
+                    Exact UTC-day return · since {data.analytics.retention.startedAt}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-neutral-400">
@@ -396,9 +399,16 @@ function StatCard({ label, value }: { label: string; value: number | string }) {
 
 function DailyBars({ rows }: { rows: UsageData["analytics"]["daily"] }) {
   const max = Math.max(1, ...rows.map((row) => row.visitors));
+  const columnCount = Math.max(1, rows.length);
   return (
     <div className="overflow-x-auto">
-      <div className="grid min-w-[700px] grid-cols-[repeat(14,minmax(0,1fr))] gap-2 h-44 items-end">
+      <div
+        className="grid gap-2 h-44 items-end"
+        style={{
+          minWidth: `${Math.max(280, rows.length * 72)}px`,
+          gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+        }}
+      >
         {rows.map((row) => (
           <div key={row.day} className="h-full flex flex-col justify-end items-center gap-2">
             <span className="text-xs text-neutral-400 tabular-nums">{row.visitors}</span>
