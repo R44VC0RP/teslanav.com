@@ -15,12 +15,14 @@ const PROTOCOL_VERSION = 234;
 const APP_VERSION = "5.17.1.0";
 const NETWORK_VERSION = "3";
 const SESSION_IDLE_MS = 100_000;
-const SOFT_TTL_MS = 15_000;
+const SOFT_TTL_MS = 60_000;
 const HARD_TTL_MS = 5 * 60_000;
 const SNAPSHOT_TTL_SECONDS = 10 * 60;
 const REGISTRATION_COOLDOWN_SECONDS = 10 * 60;
 const REFRESH_BUDGET_MS = 12_000;
 const MISS_WAIT_MS = 2_000;
+const MIN_REFRESH_INTERVAL_MS = 5_000;
+const QUOTA_BACKOFF_MS = 2 * 60_000;
 const TELEPORT_KM = 25;
 
 type Region = "na" | "il" | "row";
@@ -99,6 +101,7 @@ interface PendingRefresh {
 class SessionExpiredError extends Error {}
 class AccountRejectedError extends Error {}
 class RetryCommandError extends Error {}
+class QuotaExceededError extends Error {}
 
 const DEVICE_POOL: Omit<DeviceIdentity, "installationId">[] = [
   { manufacturer: "samsung", model: "SM-S928B", osVersion: "16-SDK36", width: 1440, height: 3088 },
@@ -494,7 +497,12 @@ class WazeRtSession {
       throw new SessionExpiredError(authError.description);
     }
     const fatal = errors.find((error) => error.code >= 500);
-    if (fatal) throw new Error(`Waze RT error ${fatal.code}: ${fatal.description}`);
+    if (fatal) {
+      if (fatal.code === 520 && /quota exceeded/i.test(fatal.description)) {
+        throw new QuotaExceededError(fatal.description);
+      }
+      throw new Error(`Waze RT error ${fatal.code}: ${fatal.description}`);
+    }
     this.lastRequestAt = Date.now();
     return batch;
   }
@@ -523,6 +531,9 @@ class WazeRtProvider {
   private readonly pendingRefreshes = new Map<string, PendingRefresh>();
   private activeRefreshKey: string | null = null;
   private lastCenter: { lat: number; lon: number } | null = null;
+  private lastRefreshStartedAt = 0;
+  private quotaBackoffUntil = 0;
+  private lastQuotaLogAt = 0;
   private appliedGeneration = 0;
   private readonly instanceId = randomUUID();
 
@@ -568,6 +579,25 @@ class WazeRtProvider {
     this.activeRefreshKey = this.spatialSnapshotKey(bounds);
     this.refreshPromise = this.runRefresh(bounds)
       .catch((error) => {
+        if (error instanceof QuotaExceededError) {
+          this.session.invalidate();
+          this.quotaBackoffUntil = Date.now() + QUOTA_BACKOFF_MS;
+          for (const pending of this.pendingRefreshes.values()) {
+            pending.resolve();
+          }
+          this.pendingRefreshes.clear();
+          console.warn(
+            `[WazeRT:${this.region}] quota exceeded; pausing refreshes for ${QUOTA_BACKOFF_MS / 1000}s`
+          );
+          if (Date.now() - this.lastQuotaLogAt >= QUOTA_BACKOFF_MS) {
+            this.lastQuotaLogAt = Date.now();
+            logAppEvent("warn", "waze-rt", "Waze quota backoff activated", {
+              region: this.region,
+              backoffSeconds: QUOTA_BACKOFF_MS / 1000,
+            });
+          }
+          return;
+        }
         console.error(`[WazeRT:${this.region}] refresh failed:`, error);
         logAppEvent("error", "waze-rt", "Alert refresh failed", {
           region: this.region,
@@ -590,6 +620,9 @@ class WazeRtProvider {
   }
 
   refresh(bounds: MapBounds): Promise<void> {
+    if (Date.now() < this.quotaBackoffUntil) {
+      return Promise.resolve();
+    }
     const expanded = expandedBounds(bounds);
     const refreshKey = this.spatialSnapshotKey(expanded);
     if (this.refreshPromise) {
@@ -603,7 +636,7 @@ class WazeRtProvider {
 
       // Preserve each waiting area instead of allowing the busiest client to
       // overwrite the only pending slot. Bound the queue as a safety valve.
-      if (this.pendingRefreshes.size >= 64) {
+      if (this.pendingRefreshes.size >= 16) {
         const oldest = this.pendingRefreshes.keys().next().value as string | undefined;
         if (oldest) {
           this.pendingRefreshes.get(oldest)?.resolve();
@@ -625,6 +658,16 @@ class WazeRtProvider {
   }
 
   private async runRefresh(bounds: MapBounds): Promise<void> {
+    const pacingDelay = Math.max(
+      0,
+      this.lastRefreshStartedAt + MIN_REFRESH_INTERVAL_MS - Date.now()
+    );
+    if (pacingDelay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, pacingDelay));
+    }
+    if (Date.now() < this.quotaBackoffUntil) return;
+    this.lastRefreshStartedAt = Date.now();
+
     const redis = getRedisClient();
     const lockKey = `waze:rt:refresh-lock:${this.region}:${this.spatialSnapshotKey(bounds)}`;
     // Worst case is a retried handshake plus several 10.5s long-poll commands.
