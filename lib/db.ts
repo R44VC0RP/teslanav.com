@@ -42,6 +42,20 @@ function createDatabase(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_suggestions_created_at ON suggestions (created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS user_reports (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      lat REAL NOT NULL,
+      lon REAL NOT NULL,
+      reporter_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      confirmations INTEGER NOT NULL DEFAULT 0,
+      deleted_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_reports_expires ON user_reports (expires_at);
+    CREATE INDEX IF NOT EXISTS idx_user_reports_reporter ON user_reports (reporter_hash);
+
     CREATE TABLE IF NOT EXISTS waze_rt_credentials (
       region TEXT PRIMARY KEY,
       credentials_json TEXT NOT NULL,
@@ -333,6 +347,174 @@ export function listSuggestions(limit = 30): SuggestionRow[] {
        FROM suggestions ORDER BY created_at DESC LIMIT ?`
     )
     .all(Math.min(Math.max(limit, 1), 100)) as SuggestionRow[];
+}
+
+const USER_REPORT_COLUMNS = `id, type, lat, lon,
+       created_at AS createdAt, expires_at AS expiresAt, confirmations`;
+
+export interface UserReportAdminRow extends UserReportRecord {
+  deletedAt: number | null;
+}
+
+// Matches lib/user-reports.ts UserReport; declared locally so db.ts stays a
+// plain storage layer without importing feature modules.
+interface UserReportRecord {
+  id: string;
+  type: string;
+  lat: number;
+  lon: number;
+  createdAt: number;
+  expiresAt: number;
+  confirmations: number;
+}
+
+export function insertUserReport(report: {
+  id: string;
+  type: string;
+  lat: number;
+  lon: number;
+  reporterHash: string;
+  ttlMs: number;
+}): UserReportRecord {
+  const now = Date.now();
+  getDb()
+    .prepare(
+      `INSERT INTO user_reports (id, type, lat, lon, reporter_hash, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      report.id,
+      report.type,
+      report.lat,
+      report.lon,
+      report.reporterHash,
+      now,
+      now + report.ttlMs
+    );
+  maybePruneUserReports();
+  return {
+    id: report.id,
+    type: report.type,
+    lat: report.lat,
+    lon: report.lon,
+    createdAt: now,
+    expiresAt: now + report.ttlMs,
+    confirmations: 0,
+  };
+}
+
+export function findNearbyActiveUserReport(
+  type: string,
+  lat: number,
+  lon: number,
+  radiusDeg: number
+): UserReportRecord | null {
+  const row = getDb()
+    .prepare(
+      `SELECT ${USER_REPORT_COLUMNS} FROM user_reports
+       WHERE deleted_at IS NULL AND expires_at > ? AND type = ?
+         AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?
+       ORDER BY ABS(lat - ?) + ABS(lon - ?) ASC
+       LIMIT 1`
+    )
+    .get(
+      Date.now(),
+      type,
+      lat - radiusDeg,
+      lat + radiusDeg,
+      lon - radiusDeg,
+      lon + radiusDeg,
+      lat,
+      lon
+    ) as UserReportRecord | undefined;
+  return row ?? null;
+}
+
+/**
+ * Register a duplicate sighting: bump the confirmation count and renew the
+ * expiry window, bounded by maxLifetimeMs after the original report.
+ */
+export function confirmUserReport(
+  id: string,
+  ttlMs: number,
+  maxLifetimeMs: number
+): UserReportRecord | null {
+  const now = Date.now();
+  getDb()
+    .prepare(
+      `UPDATE user_reports
+       SET confirmations = confirmations + 1,
+           expires_at = MIN(created_at + ?, MAX(expires_at, ?))
+       WHERE id = ? AND deleted_at IS NULL AND expires_at > ?`
+    )
+    .run(maxLifetimeMs, now + ttlMs, id, now);
+  const row = getDb()
+    .prepare(`SELECT ${USER_REPORT_COLUMNS} FROM user_reports WHERE id = ?`)
+    .get(id) as UserReportRecord | undefined;
+  return row ?? null;
+}
+
+export function listActiveUserReports(bounds: {
+  west: number;
+  east: number;
+  south: number;
+  north: number;
+}): UserReportRecord[] {
+  return getDb()
+    .prepare(
+      `SELECT ${USER_REPORT_COLUMNS} FROM user_reports
+       WHERE deleted_at IS NULL AND expires_at > ?
+         AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?
+       ORDER BY created_at DESC
+       LIMIT 200`
+    )
+    .all(
+      Date.now(),
+      bounds.south,
+      bounds.north,
+      bounds.west,
+      bounds.east
+    ) as UserReportRecord[];
+}
+
+export function countActiveUserReportsByReporter(reporterHash: string): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS count FROM user_reports
+       WHERE reporter_hash = ? AND deleted_at IS NULL AND expires_at > ?`
+    )
+    .get(reporterHash, Date.now()) as { count: number };
+  return row.count;
+}
+
+export function listUserReports(limit = 30): UserReportAdminRow[] {
+  return getDb()
+    .prepare(
+      `SELECT ${USER_REPORT_COLUMNS}, deleted_at AS deletedAt
+       FROM user_reports ORDER BY created_at DESC LIMIT ?`
+    )
+    .all(Math.min(Math.max(limit, 1), 100)) as UserReportAdminRow[];
+}
+
+/** Soft delete so the report vanishes from /api/waze merges but stays auditable. */
+export function deleteUserReport(id: string): boolean {
+  const result = getDb()
+    .prepare(
+      `UPDATE user_reports SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`
+    )
+    .run(Date.now(), id);
+  return result.changes > 0;
+}
+
+let lastUserReportPruneAt = 0;
+
+function maybePruneUserReports(): void {
+  const now = Date.now();
+  if (now - lastUserReportPruneAt < 24 * 60 * 60 * 1000) return;
+  lastUserReportPruneAt = now;
+  getDb()
+    .prepare(`DELETE FROM user_reports WHERE expires_at < ?`)
+    .run(now - 30 * 86_400_000);
 }
 
 export function getWazeRtCredentials(region: string): {

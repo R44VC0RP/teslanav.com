@@ -5,6 +5,11 @@ import {
   setPendingBounds,
 } from "@/lib/waze-relay";
 import { getWazeRtAlerts } from "@/lib/waze-rt";
+import { listActiveUserReports } from "@/lib/db";
+import {
+  userReportToWazeAlert,
+  type UserReport,
+} from "@/lib/user-reports";
 import type { WazeAlert } from "@/types/waze";
 
 /**
@@ -83,6 +88,16 @@ export async function GET(request: NextRequest) {
   for (const alert of rt.alerts) merged.set(alert.id, alert);
   // GeoRSS is richer; prefer it when both sources describe the same alert.
   for (const alert of relayed?.alerts ?? []) merged.set(alert.id, alert);
+  // First-party user reports ride along with Waze data. SQLite is local and
+  // synchronous; a failure must never take down the alerts feed.
+  try {
+    for (const report of listActiveUserReports(bounds)) {
+      const alert = userReportToWazeAlert(report as UserReport);
+      merged.set(alert.id, alert);
+    }
+  } catch (error) {
+    console.error("[Waze] User report read failed:", error);
+  }
 
   if (rt.cache !== "MISS" || relayed) {
     const alerts = [...merged.values()];

@@ -89,7 +89,25 @@ interface UsageData {
     emailError: string | null;
   }>;
   recentFeedback: FeedbackEntry[];
+  recentUserReports: Array<{
+    id: string;
+    type: string;
+    lat: number;
+    lon: number;
+    createdAt: number;
+    expiresAt: number;
+    confirmations: number;
+    deletedAt: number | null;
+  }>;
 }
+
+const REPORT_TYPE_BADGES: Record<string, string> = {
+  POLICE: "bg-blue-500/15 text-blue-300",
+  ACCIDENT: "bg-red-500/15 text-red-300",
+  HAZARD: "bg-amber-500/15 text-amber-300",
+  ROAD_CLOSED: "bg-gray-500/15 text-gray-300",
+  JAM: "bg-violet-500/15 text-violet-300",
+};
 
 export default function AdminPage() {
   const [apiKey, setApiKey] = useState("");
@@ -119,6 +137,28 @@ export default function AdminPage() {
       setLoading(false);
     }
   }, [apiKey]);
+
+  const deleteReport = useCallback(
+    async (id: string) => {
+      try {
+        const response = await fetch(
+          `/api/admin/reports?id=${encodeURIComponent(id)}`,
+          {
+            method: "DELETE",
+            headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+          }
+        );
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || `Delete failed (${response.status})`);
+        }
+        await fetchUsage();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      }
+    },
+    [apiKey, fetchUsage]
+  );
 
   return (
     <main className="h-full bg-neutral-950 text-white p-8 overflow-y-auto">
@@ -323,6 +363,66 @@ export default function AdminPage() {
                       </p>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* User reports */}
+            <div>
+              <h2 className="text-xl font-semibold mb-3">Recent user reports</h2>
+              {data.recentUserReports.length === 0 ? (
+                <p className="text-neutral-500">No user reports yet.</p>
+              ) : (
+                <div className="rounded-xl bg-white/5 border border-white/10 divide-y divide-white/5 overflow-hidden">
+                  {data.recentUserReports.map((report) => {
+                    const status = report.deletedAt
+                      ? "deleted"
+                      : report.expiresAt > Date.now()
+                        ? "active"
+                        : "expired";
+                    return (
+                      <div
+                        key={report.id}
+                        className="grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-3 px-4 py-3 text-sm"
+                      >
+                        <span
+                          className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                            REPORT_TYPE_BADGES[report.type] ?? "bg-white/10 text-neutral-300"
+                          }`}
+                        >
+                          {report.type.replace(/_/g, " ")}
+                        </span>
+                        <span className="min-w-0 truncate text-neutral-400 tabular-nums">
+                          {report.lat.toFixed(5)}, {report.lon.toFixed(5)}
+                          {report.confirmations > 0 ? ` · ${report.confirmations}× confirmed` : ""}
+                        </span>
+                        <span
+                          className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                            status === "active"
+                              ? "bg-green-500/15 text-green-300"
+                              : status === "deleted"
+                                ? "bg-red-500/15 text-red-300"
+                                : "bg-white/10 text-neutral-400"
+                          }`}
+                        >
+                          {status}
+                        </span>
+                        <time className="text-xs text-neutral-500 tabular-nums whitespace-nowrap">
+                          {new Date(report.createdAt).toLocaleString()}
+                        </time>
+                        {status === "active" ? (
+                          <button
+                            onClick={() => deleteReport(report.id)}
+                            className="rounded-md px-2.5 py-1 text-xs font-medium bg-red-500/10 text-red-300 hover:bg-red-500/25 transition-colors"
+                          >
+                            Delete
+                          </button>
+                        ) : (
+                          <span />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

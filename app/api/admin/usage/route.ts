@@ -5,6 +5,7 @@ import {
   listAppLogs,
   listFeedback,
   listSuggestions,
+  listUserReports,
   listWazeRtCredentialRegions,
 } from "@/lib/db";
 import { getRedisClient } from "@/lib/redis";
@@ -100,6 +101,7 @@ export async function GET(request: NextRequest) {
       recentLogs: listAppLogs(60),
       recentSuggestions: listSuggestions(30),
       recentFeedback: listFeedback(20),
+      recentUserReports: listUserReports(30),
     });
   } catch (error) {
     console.error("Admin usage error:", error);

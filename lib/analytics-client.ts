@@ -4,6 +4,8 @@ export type AnalyticsEventName =
   | "settings_opened"
   | "feedback_opened"
   | "police_alert_triggered"
+  | "report_opened"
+  | "report_submitted"
   | "sponsor_clicked"
   | "suggestion_sent"
   | "ad_impression"

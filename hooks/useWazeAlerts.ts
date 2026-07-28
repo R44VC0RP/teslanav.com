@@ -348,6 +348,35 @@ export function useWazeAlerts({
     [enabled, canMakeRequest, findCachedTile, getAlertsFromCache, cleanExpiredTiles, updateCachedTileBoundsState, recordRequest, handleRateLimitError, handleSuccess, minZoomLevel, bufferWidthMultiplier, bufferHeightMultiplier]
   );
 
+  // Locally echo a user-submitted report so it renders immediately instead
+  // of waiting for the next server fetch (which will also contain it). The
+  // tiny tile is newest, so it wins the dedupe until real data replaces it.
+  const addLocalAlert = useCallback(
+    (alert: WazeAlert) => {
+      const epsilon = 0.001;
+      tileCache.current.push({
+        bounds: {
+          west: alert.location.x - epsilon,
+          east: alert.location.x + epsilon,
+          south: alert.location.y - epsilon,
+          north: alert.location.y + epsilon,
+        },
+        alerts: [alert],
+        fetchedAt: Date.now(),
+      });
+      if (tileCache.current.length > 10) {
+        tileCache.current = tileCache.current.slice(-10);
+      }
+      updateCachedTileBoundsState();
+      if (lastBounds.current) {
+        setAlerts(getAlertsFromCache(lastBounds.current));
+      } else {
+        setAlerts((previous) => [...previous, alert]);
+      }
+    },
+    [getAlertsFromCache, updateCachedTileBoundsState]
+  );
+
   // Debounced fetch when bounds change
   useEffect(() => {
     if (!enabled || !bounds) return;
@@ -407,6 +436,7 @@ export function useWazeAlerts({
     loading,
     error,
     refetch: () => bounds && fetchAlerts(bounds, true),
+    addLocalAlert,
     // Dev mode - stable reference that only updates when cache changes
     cachedTileBounds,
   };

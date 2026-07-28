@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Map, type MapRef } from "@/components/Map";
 import { SettingsModal } from "@/components/SettingsModal";
 import { FeedbackModal } from "@/components/FeedbackModal";
+import { ReportModal } from "@/components/ReportModal";
 import { WelcomeBackFanfare } from "@/components/WelcomeBackFanfare";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useSolarTheme } from "@/hooks/useSolarTheme";
@@ -14,7 +15,7 @@ import {
   type OpenFreeMapStyle,
 } from "@/lib/map-styles";
 import { trackAnalyticsEvent } from "@/lib/analytics-client";
-import type { MapBounds } from "@/types/waze";
+import type { MapBounds, WazeAlert } from "@/types/waze";
 import Image from "next/image";
 import { ShieldExclamationIcon, ExclamationTriangleIcon, NoSymbolIcon } from "@heroicons/react/24/solid";
 import {
@@ -25,6 +26,7 @@ import {
   Plus as PlusIcon,
   Satellite as SatelliteIcon,
   Settings as SettingsIcon,
+  TriangleAlert as ReportIcon,
 } from "lucide-react";
 
 // Consistent button styles for light/dark mode - more transparent with blur
@@ -69,6 +71,7 @@ export default function Home() {
   const [isCentered, setIsCentered] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const [showWazeAlerts, setShowWazeAlerts] = useState(true);
   const [showAvatarPulse, setShowAvatarPulse] = useState(true);
   const [showSupportBanner, setShowSupportBanner] = useState(() => {
@@ -115,10 +118,20 @@ export default function Home() {
   const { latitude, longitude, heading, effectiveHeading, speed, error: geoError } = useGeolocation();
   const solarTheme = useSolarTheme(latitude, longitude);
   const isDarkMode = solarTheme.isDark;
-  const { alerts, loading: alertsLoading, cachedTileBounds } = useWazeAlerts({
+  const { alerts, loading: alertsLoading, cachedTileBounds, addLocalAlert } = useWazeAlerts({
     bounds,
     enabled: showWazeAlerts,
   });
+
+  // Show a just-submitted report on the map immediately, and never trigger
+  // the police proximity toast for the reporter's own sighting.
+  const handleReported = useCallback(
+    (alert: WazeAlert) => {
+      if (alert.type === "POLICE") alertedPoliceIdsRef.current.add(alert.id);
+      addLocalAlert(alert);
+    },
+    [addLocalAlert]
+  );
 
   // Calculate distance between two coordinates in meters (Haversine formula)
   const getDistanceInMeters = useCallback((lat1: number, lng1: number, lat2: number, lng2: number): number => {
@@ -696,6 +709,19 @@ export default function Home() {
 
       {/* Bottom Right - Control Buttons */}
       <div className="absolute bottom-6 right-4 z-30 flex gap-3">
+        {/* Report Button */}
+        <button
+          onClick={() => {
+            setShowReport(true);
+            trackAnalyticsEvent("report_opened");
+          }}
+          className="px-5 h-16 rounded-xl backdrop-blur-xl flex items-center justify-center gap-2 bg-amber-500/80 text-white border-amber-400/30 shadow-lg border transition-all duration-200 hover:scale-105 active:scale-95"
+          aria-label="Report police or a hazard"
+        >
+          <ReportIcon className="w-6 h-6" />
+          <span className="text-lg font-medium">Report</span>
+        </button>
+
         {/* Dev Mode - Police Alert Test Button */}
         {isDevMode && (
           <button
@@ -850,6 +876,16 @@ export default function Home() {
         isOpen={showFeedback}
         onClose={() => setShowFeedback(false)}
         isDarkMode={isDarkMode}
+      />
+
+      {/* Report Modal */}
+      <ReportModal
+        isOpen={showReport}
+        onClose={() => setShowReport(false)}
+        isDarkMode={isDarkMode}
+        latitude={latitude}
+        longitude={longitude}
+        onReported={handleReported}
       />
 
       <WelcomeBackFanfare />
