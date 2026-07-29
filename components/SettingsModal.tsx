@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { ShieldExclamationIcon } from "@heroicons/react/24/solid";
 import { trackAnalyticsEvent } from "@/lib/analytics-client";
 import { SuggestionBox } from "@/components/SuggestionBox";
+import type { UnitSystem } from "@/lib/units";
 
 export type ThemeMode = "auto" | "light" | "dark";
 
@@ -13,6 +14,7 @@ interface SettingsModalProps {
   isDarkMode: boolean;
   themeMode: ThemeMode;
   onThemeModeChange: (value: ThemeMode) => void;
+  unitSystem: UnitSystem;
   showWazeAlerts: boolean;
   onToggleWazeAlerts: (value: boolean) => void;
   showSpeedCameras: boolean;
@@ -34,6 +36,7 @@ export function SettingsModal({
   isDarkMode,
   themeMode,
   onThemeModeChange,
+  unitSystem,
   showWazeAlerts,
   onToggleWazeAlerts,
   showSpeedCameras,
@@ -238,12 +241,12 @@ export function SettingsModal({
                   </div>
                   <div className="flex gap-2 flex-wrap">
                     {[
-                      { value: 0, label: "Off" },
-                      { value: 402, label: "¼ mi" },
-                      { value: 805, label: "½ mi" },
-                      { value: 1609, label: "1 mi" },
-                      { value: 3219, label: "2 mi" },
-                    ].map((option) => (
+                      { value: 0, imperial: "Off", metric: "Off" },
+                      { value: 402, imperial: "¼ mi", metric: "400 m" },
+                      { value: 805, imperial: "½ mi", metric: "800 m" },
+                      { value: 1609, imperial: "1 mi", metric: "1.6 km" },
+                      { value: 3219, imperial: "2 mi", metric: "3.2 km" },
+                    ].map(({ value, ...labels }) => ({ value, label: labels[unitSystem] })).map((option) => (
                       <button
                         key={option.value}
                         onClick={() => onPoliceAlertDistanceChange(option.value)}

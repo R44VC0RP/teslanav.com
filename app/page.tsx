@@ -17,6 +17,7 @@ import {
   type OpenFreeMapStyle,
 } from "@/lib/map-styles";
 import { trackAnalyticsEvent } from "@/lib/analytics-client";
+import { detectUnitSystem, type UnitSystem } from "@/lib/units";
 import type { MapBounds, WazeAlert } from "@/types/waze";
 import Image from "next/image";
 import { ShieldExclamationIcon, ExclamationTriangleIcon, NoSymbolIcon } from "@heroicons/react/24/solid";
@@ -63,6 +64,9 @@ export default function Home() {
     return "auto";
   });
   const [bounds, setBounds] = useState<MapBounds | null>(null);
+  const [unitSystem] = useState<UnitSystem>(() =>
+    typeof window !== "undefined" ? detectUnitSystem() : "imperial"
+  );
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("teslanav-theme-mode");
@@ -503,6 +507,7 @@ export default function Home() {
         satelliteMaxZoom={mapStyleDefinition.maxZoom}
         alerts={filteredAlerts}
         speedCameras={showSpeedCameras ? cameras : []}
+        unitSystem={unitSystem}
         onBoundsChange={handleBoundsChange}
         onCenteredChange={handleCenteredChange}
         userLocation={{ latitude, longitude, heading, effectiveHeading, speed }}
@@ -890,6 +895,7 @@ export default function Home() {
         isDarkMode={isDarkMode}
         themeMode={themeMode}
         onThemeModeChange={handleThemeModeChange}
+        unitSystem={unitSystem}
         showWazeAlerts={showWazeAlerts}
         onToggleWazeAlerts={setShowWazeAlerts}
         showSpeedCameras={showSpeedCameras}

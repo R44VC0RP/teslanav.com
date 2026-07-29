@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallba
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { DEFAULT_MAP_STYLE, OPENFREEMAP_STYLES } from "@/lib/map-styles";
+import { formatSpeedLimit, type UnitSystem } from "@/lib/units";
 import type { WazeAlert, MapBounds } from "@/types/waze";
 import type { SpeedCamera } from "@/types/speedcamera";
 import type { RouteData } from "@/types/route";
@@ -18,6 +19,7 @@ interface MapProps {
   satelliteMaxZoom?: number;
   alerts?: WazeAlert[];
   speedCameras?: SpeedCamera[];
+  unitSystem?: UnitSystem;
   onBoundsChange?: (bounds: MapBounds) => void;
   onCenteredChange?: (isCentered: boolean) => void;
   route?: RouteData | null; // Legacy single route support
@@ -167,6 +169,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     satelliteMaxZoom = 19,
     alerts = [],
     speedCameras = [],
+    unitSystem = "imperial",
     onBoundsChange,
     onCenteredChange,
     route,
@@ -1140,11 +1143,10 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         </div>
       `;
 
-      // maxspeed can be "35" (city data) or "35 mph" (OSM tag)
+      // Normalize stored limits (OSM "35 mph"/"50" km/h, city mph numbers)
+      // into the viewer's unit system.
       const speedLabel = camera.maxspeed
-        ? /^\d+$/.test(camera.maxspeed)
-          ? `${camera.maxspeed} mph`
-          : camera.maxspeed
+        ? formatSpeedLimit(camera.maxspeed, camera.source, unitSystem)
         : null;
       const attribution =
         CAMERA_SOURCE_ATTRIBUTION[camera.source ?? ""] ??
@@ -1186,7 +1188,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
 
       cameraMarkersRef.current.set(camera.id, marker);
     }
-  }, [speedCameras, mapLoaded, isDarkMode]);
+  }, [speedCameras, mapLoaded, isDarkMode, unitSystem]);
 
   // Route line display - supports multiple routes with selection
   useEffect(() => {
