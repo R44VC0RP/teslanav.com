@@ -11,7 +11,6 @@ interface FeedbackEntry {
 
 interface UsageData {
   sqlite: {
-    recordings: number;
     feedback: number;
     suggestions: number;
   };
@@ -201,7 +200,6 @@ export default function AdminPage() {
           <>
             {/* Stat cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard label="Recordings" value={data.sqlite.recordings} />
               <StatCard label="Feedback messages" value={data.sqlite.feedback} />
               <StatCard label="Suggestions" value={data.sqlite.suggestions} />
               <StatCard

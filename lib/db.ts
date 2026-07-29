@@ -19,16 +19,6 @@ function createDatabase(): Database.Database {
   const db = new Database(DATABASE_PATH);
   db.pragma("journal_mode = WAL");
   db.exec(`
-    CREATE TABLE IF NOT EXISTS recordings (
-      id TEXT PRIMARY KEY,
-      session_token TEXT NOT NULL,
-      name TEXT NOT NULL,
-      gpx TEXT NOT NULL,
-      size INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_recordings_session ON recordings (session_token);
-
     CREATE TABLE IF NOT EXISTS feedback (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       message TEXT NOT NULL,
@@ -218,62 +208,11 @@ export function getDb(): Database.Database {
   return globalThis.__teslanavDb;
 }
 
-export interface RecordingRow {
-  id: string;
-  session_token: string;
-  name: string;
-  gpx: string;
-  size: number;
-  created_at: string;
-}
-
 export interface FeedbackRow {
   id: number;
   message: string;
   email: string | null;
   created_at: string;
-}
-
-export function insertRecording(recording: {
-  id: string;
-  sessionToken: string;
-  name: string;
-  gpx: string;
-}): void {
-  getDb()
-    .prepare(
-      `INSERT INTO recordings (id, session_token, name, gpx, size) VALUES (?, ?, ?, ?, ?)`
-    )
-    .run(
-      recording.id,
-      recording.sessionToken,
-      recording.name,
-      recording.gpx,
-      Buffer.byteLength(recording.gpx, "utf8")
-    );
-}
-
-export function listRecordings(
-  sessionToken: string
-): Omit<RecordingRow, "gpx" | "session_token">[] {
-  return getDb()
-    .prepare(
-      `SELECT id, name, size, created_at FROM recordings WHERE session_token = ? ORDER BY created_at DESC`
-    )
-    .all(sessionToken) as Omit<RecordingRow, "gpx" | "session_token">[];
-}
-
-export function getRecording(id: string): RecordingRow | undefined {
-  return getDb().prepare(`SELECT * FROM recordings WHERE id = ?`).get(id) as
-    | RecordingRow
-    | undefined;
-}
-
-export function deleteRecording(id: string): boolean {
-  const result = getDb()
-    .prepare(`DELETE FROM recordings WHERE id = ?`)
-    .run(id);
-  return result.changes > 0;
 }
 
 export function insertFeedback(message: string, email?: string): number {
@@ -289,10 +228,7 @@ export function listFeedback(limit = 100): FeedbackRow[] {
     .all(limit) as FeedbackRow[];
 }
 
-export function getStats(): { recordings: number; feedback: number; suggestions: number } {
-  const recordings = getDb()
-    .prepare(`SELECT COUNT(*) AS count FROM recordings`)
-    .get() as { count: number };
+export function getStats(): { feedback: number; suggestions: number } {
   const feedback = getDb()
     .prepare(`SELECT COUNT(*) AS count FROM feedback`)
     .get() as { count: number };
@@ -300,7 +236,6 @@ export function getStats(): { recordings: number; feedback: number; suggestions:
     .prepare(`SELECT COUNT(*) AS count FROM suggestions`)
     .get() as { count: number };
   return {
-    recordings: recordings.count,
     feedback: feedback.count,
     suggestions: suggestions.count,
   };
