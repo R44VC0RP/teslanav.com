@@ -5,10 +5,14 @@ import { ShieldExclamationIcon } from "@heroicons/react/24/solid";
 import { trackAnalyticsEvent } from "@/lib/analytics-client";
 import { SuggestionBox } from "@/components/SuggestionBox";
 
+export type ThemeMode = "auto" | "light" | "dark";
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   isDarkMode: boolean;
+  themeMode: ThemeMode;
+  onThemeModeChange: (value: ThemeMode) => void;
   showWazeAlerts: boolean;
   onToggleWazeAlerts: (value: boolean) => void;
   showSpeedCameras: boolean;
@@ -28,6 +32,8 @@ export function SettingsModal({
   isOpen,
   onClose,
   isDarkMode,
+  themeMode,
+  onThemeModeChange,
   showWazeAlerts,
   onToggleWazeAlerts,
   showSpeedCameras,
@@ -288,6 +294,48 @@ export function SettingsModal({
               </h3>
 
               <div className="space-y-4">
+                {/* Theme Mode Selector */}
+                <div className={`
+                  p-5 rounded-xl
+                  ${isDarkMode ? "bg-white/5" : "bg-black/5"}
+                `}>
+                  <div className="flex items-center gap-4 mb-4">
+                    <span className="text-3xl">🌗</span>
+                    <div>
+                      <div className="text-lg font-medium">Theme</div>
+                      <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                        Auto switches with sunrise and sunset at your location
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    {([
+                      { value: "auto", label: "Auto" },
+                      { value: "light", label: "Light" },
+                      { value: "dark", label: "Dark" },
+                    ] as const).map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => {
+                          onThemeModeChange(option.value);
+                          trackAnalyticsEvent("theme_mode_changed", option.value);
+                        }}
+                        className={`
+                          px-5 py-2.5 rounded-xl text-base font-medium transition-all
+                          ${themeMode === option.value
+                            ? "bg-blue-500 text-white"
+                            : isDarkMode
+                              ? "bg-white/10 hover:bg-white/20 text-white"
+                              : "bg-black/10 hover:bg-black/20 text-black"
+                          }
+                        `}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Avatar Pulse Toggle */}
                 <div className={`
                   flex items-center justify-between p-5 rounded-xl

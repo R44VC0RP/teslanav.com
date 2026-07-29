@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Map, type MapRef } from "@/components/Map";
-import { SettingsModal } from "@/components/SettingsModal";
+import { SettingsModal, type ThemeMode } from "@/components/SettingsModal";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { ReportModal } from "@/components/ReportModal";
 import { WelcomeBackFanfare } from "@/components/WelcomeBackFanfare";
+import { WhatsNew } from "@/components/WhatsNew";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useSolarTheme } from "@/hooks/useSolarTheme";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
@@ -62,6 +63,13 @@ export default function Home() {
     return "auto";
   });
   const [bounds, setBounds] = useState<MapBounds | null>(null);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("teslanav-theme-mode");
+      if (saved === "light" || saved === "dark") return saved;
+    }
+    return "auto";
+  });
   const [followMode, setFollowMode] = useState(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("teslanav-follow-mode");
@@ -124,7 +132,13 @@ export default function Home() {
 
   const { latitude, longitude, heading, effectiveHeading, speed, error: geoError } = useGeolocation();
   const solarTheme = useSolarTheme(latitude, longitude);
-  const isDarkMode = solarTheme.isDark;
+  const isDarkMode =
+    themeMode === "auto" ? solarTheme.isDark : themeMode === "dark";
+
+  const handleThemeModeChange = useCallback((value: ThemeMode) => {
+    setThemeMode(value);
+    localStorage.setItem("teslanav-theme-mode", value);
+  }, []);
   const { alerts, loading: alertsLoading, cachedTileBounds, addLocalAlert } = useWazeAlerts({
     bounds,
     enabled: showWazeAlerts,
@@ -874,6 +888,8 @@ export default function Home() {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         isDarkMode={isDarkMode}
+        themeMode={themeMode}
+        onThemeModeChange={handleThemeModeChange}
         showWazeAlerts={showWazeAlerts}
         onToggleWazeAlerts={setShowWazeAlerts}
         showSpeedCameras={showSpeedCameras}
@@ -906,6 +922,8 @@ export default function Home() {
       />
 
       <WelcomeBackFanfare />
+
+      <WhatsNew isDarkMode={isDarkMode} />
 
       {/* Global styles for police alert animations */}
       <style jsx global>{`

@@ -7,6 +7,7 @@ export type AnalyticsEventName =
   | "report_opened"
   | "report_submitted"
   | "speed_cameras_toggled"
+  | "theme_mode_changed"
   | "sponsor_clicked"
   | "suggestion_sent"
   | "ad_impression"

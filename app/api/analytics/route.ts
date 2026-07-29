@@ -14,6 +14,7 @@ const eventNames = [
   "speed_cameras_toggled",
   "sponsor_clicked",
   "suggestion_sent",
+  "theme_mode_changed",
   "ad_impression",
   "ad_click",
 ] as const;
