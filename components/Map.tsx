@@ -5,6 +5,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { DEFAULT_MAP_STYLE, OPENFREEMAP_STYLES } from "@/lib/map-styles";
 import type { WazeAlert, MapBounds } from "@/types/waze";
+import type { SpeedCamera } from "@/types/speedcamera";
 import type { RouteData } from "@/types/route";
 
 interface MapProps {
@@ -16,6 +17,7 @@ interface MapProps {
   satelliteAttribution?: string;
   satelliteMaxZoom?: number;
   alerts?: WazeAlert[];
+  speedCameras?: SpeedCamera[];
   onBoundsChange?: (bounds: MapBounds) => void;
   onCenteredChange?: (isCentered: boolean) => void;
   route?: RouteData | null; // Legacy single route support
@@ -62,6 +64,21 @@ const ALERT_ICONS: Record<string, string> = {
   ROAD_CLOSED: "/icons/closure.svg",
   JAM: "/icons/object-on-road.svg",
 };
+
+const CAMERA_ICONS: Record<string, string> = {
+  speed_camera: "/icons/speed-camera.svg",
+  red_light_camera: "/icons/red-light-camera.svg",
+  average_speed_camera: "/icons/speed-camera.svg",
+};
+
+const CAMERA_SOURCE_ATTRIBUTION: Record<string, string> = {
+  osm: "Data © OpenStreetMap contributors",
+  chicago: "Data: City of Chicago",
+  dc: "Data: DC DDOT",
+};
+
+// Keep marker count sane in dense cities; the API already caps per-request.
+const MAX_CAMERA_MARKERS = 300;
 
 // Severity order for clustering (higher = more severe)
 const ALERT_SEVERITY: Record<string, number> = {
@@ -149,6 +166,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     satelliteAttribution,
     satelliteMaxZoom = 19,
     alerts = [],
+    speedCameras = [],
     onBoundsChange,
     onCenteredChange,
     route,
@@ -167,6 +185,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
   const map = useRef<maplibregl.Map | null>(null);
   // Use Maps for incremental marker updates (key = unique ID)
   const markersRef = useRef<globalThis.Map<string, maplibregl.Marker>>(new globalThis.Map());
+  const cameraMarkersRef = useRef<globalThis.Map<string, maplibregl.Marker>>(new globalThis.Map());
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const userMarkerElRef = useRef<HTMLDivElement | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -1081,6 +1100,93 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
       }
     }
   }, [alerts, mapLoaded, isDarkMode]);
+
+  // Fixed speed / red-light camera markers (incremental, keyed by camera id)
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    const popupBg = isDarkMode ? "#1a1a1a" : "white";
+    const popupText = isDarkMode ? "#e5e5e5" : "#374151";
+    const popupSubtext = isDarkMode ? "#9ca3af" : "#6b7280";
+
+    const visible = speedCameras.slice(0, MAX_CAMERA_MARKERS);
+    const visibleIds = new Set(visible.map((camera) => camera.id));
+
+    // Remove markers that left the dataset/viewport
+    for (const [id, marker] of cameraMarkersRef.current) {
+      if (!visibleIds.has(id)) {
+        marker.remove();
+        cameraMarkersRef.current.delete(id);
+      }
+    }
+
+    for (const camera of visible) {
+      if (cameraMarkersRef.current.has(camera.id)) continue;
+
+      const el = document.createElement("div");
+      el.className = "camera-marker";
+      const icon = CAMERA_ICONS[camera.type] || CAMERA_ICONS.speed_camera;
+      const typeLabel = camera.type
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (character) => character.toUpperCase());
+
+      el.innerHTML = `
+        <div class="camera-pin" style="
+          position: relative;
+          cursor: pointer;
+          transition: transform 0.15s ease-out;
+        ">
+          <img src="${icon}" alt="${typeLabel}" style="width: 28px; height: auto;${!isDarkMode ? " filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));" : ""}" />
+        </div>
+      `;
+
+      // maxspeed can be "35" (city data) or "35 mph" (OSM tag)
+      const speedLabel = camera.maxspeed
+        ? /^\d+$/.test(camera.maxspeed)
+          ? `${camera.maxspeed} mph`
+          : camera.maxspeed
+        : null;
+      const attribution =
+        CAMERA_SOURCE_ATTRIBUTION[camera.source ?? ""] ??
+        CAMERA_SOURCE_ATTRIBUTION.osm;
+
+      const popupContent = `
+        <div class="alert-popup" style="background: ${popupBg}; color: ${popupText};">
+          <div class="alert-popup-header" style="color: #ef4444;">
+            ${typeLabel}
+          </div>
+          ${camera.name ? `<div class="alert-popup-street" style="color: ${popupText}">${camera.name}</div>` : ""}
+          ${speedLabel ? `<div class="alert-popup-subtype" style="color: ${popupSubtext}">Limit: ${speedLabel}</div>` : ""}
+          <div class="alert-popup-meta" style="color: ${popupSubtext}; font-size: 10px;">
+            ${attribution}
+          </div>
+        </div>
+      `;
+
+      const popup = new maplibregl.Popup({
+        offset: 16,
+        closeButton: false,
+        maxWidth: "220px",
+        className: `alert-popup-container ${isDarkMode ? "dark" : ""}`,
+      }).setHTML(popupContent);
+
+      const marker = new maplibregl.Marker({ element: el, anchor: "center" })
+        .setLngLat([camera.location.lon, camera.location.lat])
+        .setPopup(popup)
+        .addTo(map.current!);
+
+      el.addEventListener("mouseenter", () => {
+        const pinEl = el.querySelector(".camera-pin") as HTMLElement;
+        if (pinEl) pinEl.style.transform = "scale(1.2)";
+      });
+      el.addEventListener("mouseleave", () => {
+        const pinEl = el.querySelector(".camera-pin") as HTMLElement;
+        if (pinEl) pinEl.style.transform = "scale(1)";
+      });
+
+      cameraMarkersRef.current.set(camera.id, marker);
+    }
+  }, [speedCameras, mapLoaded, isDarkMode]);
 
   // Route line display - supports multiple routes with selection
   useEffect(() => {

@@ -11,6 +11,8 @@ interface SettingsModalProps {
   isDarkMode: boolean;
   showWazeAlerts: boolean;
   onToggleWazeAlerts: (value: boolean) => void;
+  showSpeedCameras: boolean;
+  onToggleSpeedCameras: (value: boolean) => void;
   showAvatarPulse: boolean;
   onToggleAvatarPulse: (value: boolean) => void;
   showSupportBanner: boolean;
@@ -28,6 +30,8 @@ export function SettingsModal({
   isDarkMode,
   showWazeAlerts,
   onToggleWazeAlerts,
+  showSpeedCameras,
+  onToggleSpeedCameras,
   showAvatarPulse,
   onToggleAvatarPulse,
   showSupportBanner,
@@ -174,6 +178,31 @@ export function SettingsModal({
                   <Toggle
                     enabled={showWazeAlerts}
                     onToggle={onToggleWazeAlerts}
+                    isDarkMode={isDarkMode}
+                  />
+                </div>
+
+                {/* Speed Cameras Toggle */}
+                <div className={`
+                  flex items-center justify-between p-5 rounded-xl
+                  ${isDarkMode ? "bg-white/5" : "bg-black/5"}
+                `}>
+                  <div className="flex items-center gap-4">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src="/icons/speed-camera.svg" alt="" className="w-8 h-8" />
+                    <div>
+                      <div className="text-lg font-medium">Speed Cameras</div>
+                      <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                        Fixed speed &amp; red-light camera locations
+                      </div>
+                    </div>
+                  </div>
+                  <Toggle
+                    enabled={showSpeedCameras}
+                    onToggle={(value) => {
+                      onToggleSpeedCameras(value);
+                      trackAnalyticsEvent("speed_cameras_toggled", value ? "on" : "off");
+                    }}
                     isDarkMode={isDarkMode}
                   />
                 </div>

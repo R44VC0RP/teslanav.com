@@ -9,6 +9,7 @@ import { WelcomeBackFanfare } from "@/components/WelcomeBackFanfare";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useSolarTheme } from "@/hooks/useSolarTheme";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
+import { useSpeedCameras } from "@/hooks/useSpeedCameras";
 import {
   isOpenFreeMapStyle,
   OPENFREEMAP_STYLES,
@@ -73,6 +74,12 @@ export default function Home() {
   const [showFeedback, setShowFeedback] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [showWazeAlerts, setShowWazeAlerts] = useState(true);
+  const [showSpeedCameras, setShowSpeedCameras] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("teslanav-speed-cameras") !== "false";
+    }
+    return true;
+  });
   const [showAvatarPulse, setShowAvatarPulse] = useState(true);
   const [showSupportBanner, setShowSupportBanner] = useState(() => {
     if (typeof window !== "undefined") {
@@ -122,6 +129,13 @@ export default function Home() {
     bounds,
     enabled: showWazeAlerts,
   });
+
+  const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
+
+  const handleToggleSpeedCameras = useCallback((value: boolean) => {
+    setShowSpeedCameras(value);
+    localStorage.setItem("teslanav-speed-cameras", String(value));
+  }, []);
 
   // Show a just-submitted report on the map immediately, and never trigger
   // the police proximity toast for the reporter's own sighting.
@@ -474,6 +488,7 @@ export default function Home() {
         satelliteAttribution={mapStyleDefinition.satelliteAttribution}
         satelliteMaxZoom={mapStyleDefinition.maxZoom}
         alerts={filteredAlerts}
+        speedCameras={showSpeedCameras ? cameras : []}
         onBoundsChange={handleBoundsChange}
         onCenteredChange={handleCenteredChange}
         userLocation={{ latitude, longitude, heading, effectiveHeading, speed }}
@@ -861,6 +876,8 @@ export default function Home() {
         isDarkMode={isDarkMode}
         showWazeAlerts={showWazeAlerts}
         onToggleWazeAlerts={setShowWazeAlerts}
+        showSpeedCameras={showSpeedCameras}
+        onToggleSpeedCameras={handleToggleSpeedCameras}
         showAvatarPulse={showAvatarPulse}
         onToggleAvatarPulse={setShowAvatarPulse}
         showSupportBanner={showSupportBanner}

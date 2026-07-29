@@ -11,6 +11,7 @@ const eventNames = [
   "police_alert_triggered",
   "report_opened",
   "report_submitted",
+  "speed_cameras_toggled",
   "sponsor_clicked",
   "suggestion_sent",
   "ad_impression",

@@ -11,11 +11,14 @@ export interface SpeedCamera {
   direction?: string; // e.g., "forward", "backward", "both"
   name?: string;
   ref?: string; // reference number if any
+  source?: SpeedCameraSource; // dataset the point came from
 }
+
+export type SpeedCameraSource = "osm" | "chicago" | "dc";
 
 export interface SpeedCameraResponse {
   cameras: SpeedCamera[];
   timestamp: number;
-  source: "osm";
+  source: string;
 }
 

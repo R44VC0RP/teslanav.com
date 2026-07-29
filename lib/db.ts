@@ -56,6 +56,20 @@ function createDatabase(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_user_reports_expires ON user_reports (expires_at);
     CREATE INDEX IF NOT EXISTS idx_user_reports_reporter ON user_reports (reporter_hash);
 
+    CREATE TABLE IF NOT EXISTS speed_cameras (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      lat REAL NOT NULL,
+      lon REAL NOT NULL,
+      maxspeed TEXT,
+      direction TEXT,
+      name TEXT,
+      source TEXT NOT NULL,
+      imported_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_speed_cameras_coords ON speed_cameras (lat, lon);
+    CREATE INDEX IF NOT EXISTS idx_speed_cameras_source ON speed_cameras (source);
+
     CREATE TABLE IF NOT EXISTS waze_rt_credentials (
       region TEXT PRIMARY KEY,
       credentials_json TEXT NOT NULL,
@@ -504,6 +518,93 @@ export function deleteUserReport(id: string): boolean {
     )
     .run(Date.now(), id);
   return result.changes > 0;
+}
+
+export interface SpeedCameraRow {
+  id: string;
+  type: string;
+  lat: number;
+  lon: number;
+  maxspeed: string | null;
+  direction: string | null;
+  name: string | null;
+  source: string;
+}
+
+/**
+ * Replace every camera row for one dataset in a single transaction, so a
+ * failed import can never leave a source half-written or wiped.
+ */
+export function replaceSpeedCameras(
+  source: string,
+  cameras: Array<{
+    id: string;
+    type: string;
+    lat: number;
+    lon: number;
+    maxspeed?: string;
+    direction?: string;
+    name?: string;
+  }>
+): number {
+  const db = getDb();
+  const insert = db.prepare(
+    `INSERT OR REPLACE INTO speed_cameras
+       (id, type, lat, lon, maxspeed, direction, name, source, imported_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const now = Date.now();
+  db.transaction(() => {
+    db.prepare(`DELETE FROM speed_cameras WHERE source = ?`).run(source);
+    for (const camera of cameras) {
+      insert.run(
+        camera.id,
+        camera.type,
+        camera.lat,
+        camera.lon,
+        camera.maxspeed ?? null,
+        camera.direction ?? null,
+        camera.name ?? null,
+        source,
+        now
+      );
+    }
+  })();
+  return cameras.length;
+}
+
+export function listSpeedCamerasInBounds(bounds: {
+  west: number;
+  east: number;
+  south: number;
+  north: number;
+}): SpeedCameraRow[] {
+  return getDb()
+    .prepare(
+      `SELECT id, type, lat, lon, maxspeed, direction, name, source
+       FROM speed_cameras
+       WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?
+       LIMIT 1500`
+    )
+    .all(
+      bounds.south,
+      bounds.north,
+      bounds.west,
+      bounds.east
+    ) as SpeedCameraRow[];
+}
+
+export function getSpeedCameraStats(): Array<{
+  source: string;
+  count: number;
+  importedAt: number;
+}> {
+  return getDb()
+    .prepare(
+      `SELECT source, COUNT(*) AS count, MAX(imported_at) AS importedAt
+       FROM speed_cameras GROUP BY source ORDER BY count DESC`
+    )
+    .all() as Array<{ source: string; count: number; importedAt: number }>;
 }
 
 let lastUserReportPruneAt = 0;
