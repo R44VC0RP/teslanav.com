@@ -1,6 +1,10 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  classifyReferrerHost,
+  timezoneToCountry,
+} from "@/lib/analytics-insights";
 
 // SQLite database lives on a mounted volume in Docker (./data locally).
 const DATABASE_PATH =
@@ -919,6 +923,10 @@ export interface AnalyticsStats {
     pageviews: number;
     activeSeconds: number;
   }>;
+  hourly: Array<{ hour: string; visitors: number; pageviews: number }>;
+  requestsByHour: Array<{ hour: string; count: number }>;
+  channels: Array<{ value: string; count: number }>;
+  countries: Array<{ value: string; count: number }>;
   retention: {
     cohortWindowDays: number;
     startedAt: string;
@@ -1106,6 +1114,86 @@ export function getAnalyticsStats(): AnalyticsStats {
     )
     .all(`${today}T00`) as Array<{ route: string; method: string; count: number }>;
 
+  // Unique visitors per hour, yesterday 00:00 UTC through the current hour,
+  // zero-filled so charts always receive exactly 48 slots.
+  const yesterdayStart = `${utcDay(now - 86_400_000)}T00`;
+  const hourlyRaw = db
+    .prepare(
+      `SELECT hour, COUNT(*) AS visitors, SUM(pageviews) AS pageviews
+       FROM analytics_hourly_visitors WHERE hour >= ?
+       GROUP BY hour ORDER BY hour`
+    )
+    .all(yesterdayStart) as Array<{
+      hour: string;
+      visitors: number;
+      pageviews: number;
+    }>;
+  const byHour = new Map(hourlyRaw.map((row) => [row.hour, row]));
+  const hourlyBase = Date.parse(`${yesterdayStart}:00:00Z`);
+  const hourly = Array.from({ length: 48 }, (_, index) => {
+    const hour = utcHour(hourlyBase + index * 3_600_000);
+    const row = byHour.get(hour);
+    return {
+      hour,
+      visitors: row?.visitors ?? 0,
+      pageviews: Number(row?.pageviews ?? 0),
+    };
+  });
+
+  const requestsRaw = db
+    .prepare(
+      `SELECT hour, SUM(count) AS count
+       FROM analytics_requests_hourly WHERE hour >= ?
+       GROUP BY hour ORDER BY hour`
+    )
+    .all(utcHour(now - 23 * 3_600_000)) as Array<{ hour: string; count: number }>;
+  const byRequestHour = new Map(
+    requestsRaw.map((row) => [row.hour, Number(row.count)])
+  );
+  const requestsByHour = Array.from({ length: 24 }, (_, index) => {
+    const hour = utcHour(now - (23 - index) * 3_600_000);
+    return { hour, count: byRequestHour.get(hour) ?? 0 };
+  });
+
+  // Acquisition channels from stored referrer hostnames (sessions, 30d).
+  const referrerHosts = db
+    .prepare(
+      `SELECT referrer_host AS host, COUNT(*) AS count
+       FROM analytics_sessions WHERE started_at >= ?
+       GROUP BY referrer_host`
+    )
+    .all(analyticsStartAt) as Array<{ host: string | null; count: number }>;
+  const channelCounts = new Map<string, number>();
+  for (const row of referrerHosts) {
+    const channel = classifyReferrerHost(row.host);
+    channelCounts.set(channel, (channelCounts.get(channel) ?? 0) + row.count);
+  }
+  const channels = [...channelCounts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Coarse countries from stored IANA timezones (unique visitors, 30d).
+  const timezoneRows = db
+    .prepare(
+      `SELECT timezone, COUNT(*) AS count
+       FROM analytics_visitors WHERE last_seen_at >= ?
+       GROUP BY timezone`
+    )
+    .all(analyticsStartAt) as Array<{ timezone: string | null; count: number }>;
+  const countryCounts = new Map<string, number>();
+  for (const row of timezoneRows) {
+    const country = timezoneToCountry(row.timezone);
+    countryCounts.set(country, (countryCounts.get(country) ?? 0) + row.count);
+  }
+  const countriesSorted = [...countryCounts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count);
+  const countries = countriesSorted.slice(0, 12);
+  const countriesRest = countriesSorted
+    .slice(12)
+    .reduce((sum, entry) => sum + entry.count, 0);
+  if (countriesRest > 0) countries.push({ value: "Other", count: countriesRest });
+
   return {
     visitors: {
       activeNow: scalar(
@@ -1183,6 +1271,10 @@ export function getAnalyticsStats(): AnalyticsStats {
       ),
     },
     daily,
+    hourly,
+    requestsByHour,
+    channels,
+    countries,
     retention: {
       cohortWindowDays: retentionCohortWindowDays,
       startedAt: ANALYTICS_START_DAY,

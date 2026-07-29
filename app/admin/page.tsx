@@ -51,6 +51,10 @@ interface UsageData {
       pageviews: number;
       activeSeconds: number;
     }>;
+    hourly: Array<{ hour: string; visitors: number; pageviews: number }>;
+    requestsByHour: Array<{ hour: string; count: number }>;
+    channels: Array<{ value: string; count: number }>;
+    countries: Array<{ value: string; count: number }>;
     retention: {
       cohortWindowDays: number;
       startedAt: string;
@@ -227,44 +231,90 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {/* Hourly pulse: today vs yesterday */}
+            <section className="p-5 rounded-xl bg-white/5 border border-white/10">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+                <div>
+                  <h2 className="text-xl font-semibold">Right now</h2>
+                  <p className="text-sm text-neutral-500 mt-1">
+                    Unique visitors each hour · today vs yesterday · UTC
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-neutral-400">
+                  <span className="flex items-center gap-2">
+                    <span className="inline-block w-4 border-t-2 border-blue-400" />
+                    Today
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="inline-block w-4 border-t-2 border-dashed border-neutral-500" />
+                    Yesterday
+                  </span>
+                </div>
+              </div>
+              <HourlyPulseChart slots={data.analytics.hourly} />
+            </section>
+
+            {/* Daily trend */}
+            <section className="p-5 rounded-xl bg-white/5 border border-white/10">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+                <div>
+                  <h2 className="text-xl font-semibold">Daily trend</h2>
+                  <p className="text-sm text-neutral-500 mt-1">
+                    Since {data.analytics.daily[0]?.day ?? "—"} · UTC
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-neutral-400">
+                  <span className="flex items-center gap-2">
+                    <span className="size-2.5 rounded-sm bg-blue-500/80" />
+                    Visitors
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="inline-block w-4 border-t-2 border-violet-400" />
+                    Sessions
+                  </span>
+                </div>
+              </div>
+              <DailyTrendChart rows={data.analytics.daily} />
+            </section>
+
             {/* Engagement and load */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <section>
-                <h2 className="text-xl font-semibold mb-3">Engagement today</h2>
-                <div className="grid grid-cols-2 gap-4">
-                  <StatCard label="Sessions" value={data.analytics.engagement.sessionsToday} />
-                  <StatCard label="Pageviews" value={data.analytics.engagement.pageviewsToday} />
-                  <StatCard
-                    label="Engaged time"
+              <section className="p-5 rounded-xl bg-white/5 border border-white/10">
+                <h2 className="text-xl font-semibold">Engagement</h2>
+                <p className="text-sm text-neutral-500 mt-1 mb-4">
+                  Average session length by day
+                </p>
+                <div className="flex flex-wrap gap-x-8 gap-y-2 mb-5">
+                  <MiniStat label="Sessions today" value={data.analytics.engagement.sessionsToday} />
+                  <MiniStat label="Pageviews today" value={data.analytics.engagement.pageviewsToday} />
+                  <MiniStat
+                    label="Engaged time today"
                     value={formatDuration(data.analytics.engagement.activeSecondsToday)}
                   />
-                  <StatCard
+                  <MiniStat
                     label="Avg session · 30d"
                     value={formatDuration(data.analytics.engagement.averageSessionSecondsThirtyDays)}
                   />
                 </div>
+                <EngagementBars rows={data.analytics.daily} />
               </section>
-              <section>
-                <h2 className="text-xl font-semibold mb-3">Application load</h2>
-                <div className="grid grid-cols-2 gap-4">
-                  <StatCard label="Requests this hour" value={data.analytics.load.requestsCurrentHour} />
-                  <StatCard label="Requests today" value={data.analytics.load.requestsToday} />
-                  <StatCard label="Redis keys" value={data.redis.ok ? data.redis.cachedKeys : "down"} />
-                  <StatCard label="Heap used" value={formatBytes(data.system.heapUsedBytes)} />
+              <section className="p-5 rounded-xl bg-white/5 border border-white/10">
+                <h2 className="text-xl font-semibold">Application load</h2>
+                <p className="text-sm text-neutral-500 mt-1 mb-4">
+                  API requests per hour · last 24h
+                </p>
+                <div className="flex flex-wrap gap-x-8 gap-y-2 mb-5">
+                  <MiniStat label="This hour" value={data.analytics.load.requestsCurrentHour} />
+                  <MiniStat label="Today" value={data.analytics.load.requestsToday} />
+                  <MiniStat
+                    label="Redis keys"
+                    value={data.redis.ok ? data.redis.cachedKeys : "down"}
+                  />
+                  <MiniStat label="Heap" value={formatBytes(data.system.heapUsedBytes)} />
                 </div>
+                <RequestsAreaChart slots={data.analytics.requestsByHour} />
               </section>
             </div>
-
-            {/* Daily activity */}
-            <section className="p-5 rounded-xl bg-white/5 border border-white/10">
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-xl font-semibold">
-                  Visitors · {data.analytics.daily.length} days
-                </h2>
-                <span className="text-xs text-neutral-500">UTC</span>
-              </div>
-              <DailyBars rows={data.analytics.daily} />
-            </section>
 
             {/* Retention */}
             <section className="p-5 rounded-xl bg-white/5 border border-white/10">
@@ -282,6 +332,30 @@ export default function AdminPage() {
               </div>
               <RetentionChart rows={data.analytics.retention.rows} />
             </section>
+
+            {/* Acquisition */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <section className="p-5 rounded-xl bg-white/5 border border-white/10">
+                <h2 className="text-xl font-semibold">Channels · 30d</h2>
+                <p className="text-sm text-neutral-500 mt-1 mb-5">
+                  Sessions grouped by referrer
+                </p>
+                <BreakdownBars rows={data.analytics.channels} color="#60a5fa" />
+              </section>
+              <section className="p-5 rounded-xl bg-white/5 border border-white/10">
+                <h2 className="text-xl font-semibold">Countries · 30d</h2>
+                <p className="text-sm text-neutral-500 mt-1 mb-5">
+                  Unique visitors by timezone-derived country
+                </p>
+                <BreakdownBars
+                  rows={data.analytics.countries.map((row) => {
+                    const { flag, name } = countryDisplay(row.value);
+                    return { value: `${flag} ${name}`, count: row.count };
+                  })}
+                  color="#34d399"
+                />
+              </section>
+            </div>
 
             {/* Analytics breakdowns */}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -497,34 +571,449 @@ function StatCard({ label, value }: { label: string; value: number | string }) {
   );
 }
 
-function DailyBars({ rows }: { rows: UsageData["analytics"]["daily"] }) {
-  const max = Math.max(1, ...rows.map((row) => row.visitors));
-  const columnCount = Math.max(1, rows.length);
+function MiniStat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div>
+      <div className="text-xl font-bold tabular-nums leading-tight">{value}</div>
+      <div className="text-xs text-neutral-500 mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+function countryDisplay(code: string): { flag: string; name: string } {
+  if (/^[A-Z]{2}$/.test(code)) {
+    const flag = String.fromCodePoint(
+      ...[...code].map((character) => 0x1f1e6 + character.charCodeAt(0) - 65)
+    );
+    let name = code;
+    try {
+      name = new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
+    } catch {
+      // Older browsers: fall back to the raw code.
+    }
+    return { flag, name };
+  }
+  return { flag: "🌐", name: code };
+}
+
+function HourlyPulseChart({
+  slots,
+}: {
+  slots: UsageData["analytics"]["hourly"];
+}) {
+  const width = 900;
+  const height = 220;
+  const margin = { top: 14, right: 18, bottom: 30, left: 40 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+
+  const yesterday = slots.slice(0, 24);
+  const today = slots.slice(24, 48);
+  const currentHourIndex = new Date().getUTCHours();
+  const todayPlotted = today.slice(0, currentHourIndex + 1);
+  const max = Math.max(
+    1,
+    ...yesterday.map((slot) => slot.visitors),
+    ...today.map((slot) => slot.visitors)
+  );
+  const x = (index: number) => margin.left + (index / 23) * plotWidth;
+  const y = (value: number) => margin.top + (1 - value / max) * plotHeight;
+
+  const toLine = (points: Array<{ visitors: number }>) =>
+    points
+      .map(
+        (point, index) =>
+          `${index === 0 ? "M" : "L"} ${x(index)} ${y(point.visitors)}`
+      )
+      .join(" ");
+  const todayLine = toLine(todayPlotted);
+  const todayArea = todayPlotted.length
+    ? `${todayLine} L ${x(todayPlotted.length - 1)} ${margin.top + plotHeight} L ${x(0)} ${margin.top + plotHeight} Z`
+    : "";
+
+  const gridSteps = 4;
+  const currentSlot = todayPlotted.at(-1);
+  const yesterdaySameHour = yesterday[currentHourIndex]?.visitors ?? 0;
+
+  return (
+    <div>
+      <div className="mb-4 text-sm text-neutral-400">
+        This hour:{" "}
+        <span className="font-semibold text-white tabular-nums">
+          {currentSlot?.visitors ?? 0}
+        </span>{" "}
+        visitors · same hour yesterday:{" "}
+        <span className="font-semibold text-neutral-300 tabular-nums">
+          {yesterdaySameHour}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="min-w-[720px] w-full h-auto"
+          role="img"
+          aria-label="Unique visitors per hour, today compared with yesterday"
+        >
+          <defs>
+            <linearGradient id="pulse-area" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.01" />
+            </linearGradient>
+          </defs>
+
+          {Array.from({ length: gridSteps + 1 }, (_, step) => {
+            const value = Math.round((max / gridSteps) * step);
+            return (
+              <g key={step}>
+                <line
+                  x1={margin.left}
+                  x2={width - margin.right}
+                  y1={y(value)}
+                  y2={y(value)}
+                  stroke="rgba(255,255,255,0.07)"
+                />
+                <text
+                  x={margin.left - 8}
+                  y={y(value) + 4}
+                  textAnchor="end"
+                  fill="#737373"
+                  fontSize="10"
+                >
+                  {value}
+                </text>
+              </g>
+            );
+          })}
+
+          {[0, 4, 8, 12, 16, 20, 23].map((hour) => (
+            <text
+              key={hour}
+              x={x(hour)}
+              y={height - 8}
+              textAnchor="middle"
+              fill="#737373"
+              fontSize="10"
+            >
+              {String(hour).padStart(2, "0")}:00
+            </text>
+          ))}
+
+          <path
+            d={toLine(yesterday)}
+            fill="none"
+            stroke="#737373"
+            strokeWidth="2"
+            strokeDasharray="5 5"
+            strokeLinecap="round"
+          />
+          {todayArea && <path d={todayArea} fill="url(#pulse-area)" />}
+          {todayLine && (
+            <path
+              d={todayLine}
+              fill="none"
+              stroke="#60a5fa"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+          {currentSlot && (
+            <circle
+              cx={x(todayPlotted.length - 1)}
+              cy={y(currentSlot.visitors)}
+              r="5"
+              fill="#93c5fd"
+              stroke="#171717"
+              strokeWidth="2"
+            />
+          )}
+
+          {slots.map((slot, index) =>
+            index < 24 ? (
+              <rect
+                key={slot.hour}
+                x={x(index) - plotWidth / 46}
+                y={margin.top}
+                width={plotWidth / 23}
+                height={plotHeight}
+                fill="transparent"
+              >
+                <title>{`${slot.hour}:00 yesterday · ${slot.visitors} visitors`}</title>
+              </rect>
+            ) : null
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function DailyTrendChart({ rows }: { rows: UsageData["analytics"]["daily"] }) {
+  const width = 900;
+  const height = 280;
+  const margin = { top: 22, right: 18, bottom: 34, left: 40 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const count = Math.max(1, rows.length);
+  const max = Math.max(
+    1,
+    ...rows.map((row) => Math.max(row.visitors, row.sessions))
+  );
+  const slotWidth = plotWidth / count;
+  const barWidth = Math.min(56, slotWidth * 0.55);
+  const xCenter = (index: number) => margin.left + slotWidth * (index + 0.5);
+  const y = (value: number) => margin.top + (1 - value / max) * plotHeight;
+  const labelStep = Math.ceil(count / 16);
+
+  const sessionsLine = rows
+    .map(
+      (row, index) =>
+        `${index === 0 ? "M" : "L"} ${xCenter(index)} ${y(row.sessions)}`
+    )
+    .join(" ");
+
   return (
     <div className="overflow-x-auto">
-      <div
-        className="grid gap-2 h-44 items-end"
-        style={{
-          minWidth: `${Math.max(280, rows.length * 72)}px`,
-          gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
-        }}
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="min-w-[720px] w-full h-auto"
+        role="img"
+        aria-label="Daily visitors and sessions"
       >
-        {rows.map((row) => (
-          <div key={row.day} className="h-full flex flex-col justify-end items-center gap-2">
-            <span className="text-xs text-neutral-400 tabular-nums">{row.visitors}</span>
-            <div className="w-full h-28 flex items-end rounded-lg bg-white/[0.03] overflow-hidden">
+        <defs>
+          <linearGradient id="trend-bar" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.95" />
+            <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.45" />
+          </linearGradient>
+        </defs>
+
+        {Array.from({ length: 5 }, (_, step) => {
+          const value = Math.round((max / 4) * step);
+          return (
+            <g key={step}>
+              <line
+                x1={margin.left}
+                x2={width - margin.right}
+                y1={y(value)}
+                y2={y(value)}
+                stroke="rgba(255,255,255,0.07)"
+              />
+              <text
+                x={margin.left - 8}
+                y={y(value) + 4}
+                textAnchor="end"
+                fill="#737373"
+                fontSize="10"
+              >
+                {value}
+              </text>
+            </g>
+          );
+        })}
+
+        {rows.map((row, index) => (
+          <g key={row.day}>
+            <rect
+              x={xCenter(index) - barWidth / 2}
+              y={y(row.visitors)}
+              width={barWidth}
+              height={Math.max(2, margin.top + plotHeight - y(row.visitors))}
+              rx="6"
+              fill="url(#trend-bar)"
+            >
+              <title>
+                {`${row.day} · ${row.visitors} visitors · ${row.sessions} sessions · ${row.pageviews} pageviews · ${formatDuration(row.activeSeconds)} engaged`}
+              </title>
+            </rect>
+            <text
+              x={xCenter(index)}
+              y={y(row.visitors) - 7}
+              textAnchor="middle"
+              fill="#d4d4d4"
+              fontSize="11"
+              fontWeight="600"
+            >
+              {row.visitors}
+            </text>
+            {index % labelStep === 0 && (
+              <text
+                x={xCenter(index)}
+                y={height - 10}
+                textAnchor="middle"
+                fill="#737373"
+                fontSize="10"
+              >
+                {row.day.slice(5)}
+              </text>
+            )}
+          </g>
+        ))}
+
+        <path
+          d={sessionsLine}
+          fill="none"
+          stroke="#a78bfa"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {rows.map((row, index) => (
+          <circle
+            key={row.day}
+            cx={xCenter(index)}
+            cy={y(row.sessions)}
+            r="3"
+            fill="#c4b5fd"
+            stroke="#171717"
+            strokeWidth="1.5"
+          />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function EngagementBars({ rows }: { rows: UsageData["analytics"]["daily"] }) {
+  const points = rows.map((row) => ({
+    day: row.day,
+    minutes:
+      row.sessions > 0 ? Math.round(row.activeSeconds / row.sessions / 6) / 10 : 0,
+  }));
+  const max = Math.max(1, ...points.map((point) => point.minutes));
+  return (
+    <div className="flex items-end gap-2 h-36">
+      {points.map((point) => (
+        <div
+          key={point.day}
+          className="flex-1 min-w-0 h-full flex flex-col justify-end items-center gap-1.5"
+        >
+          <span className="text-[11px] text-neutral-400 tabular-nums">
+            {point.minutes}m
+          </span>
+          <div
+            className="w-full max-w-12 rounded-md bg-amber-400/70 min-h-[2px]"
+            style={{ height: `${(point.minutes / max) * 78}%` }}
+            title={`${point.day} · avg session ${point.minutes} minutes`}
+          />
+          <span className="text-[10px] text-neutral-500 tabular-nums">
+            {point.day.slice(5)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RequestsAreaChart({
+  slots,
+}: {
+  slots: UsageData["analytics"]["requestsByHour"];
+}) {
+  const width = 420;
+  const height = 150;
+  const margin = { top: 8, right: 6, bottom: 20, left: 6 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const max = Math.max(1, ...slots.map((slot) => slot.count));
+  const x = (index: number) =>
+    margin.left + (index / Math.max(1, slots.length - 1)) * plotWidth;
+  const y = (value: number) => margin.top + (1 - value / max) * plotHeight;
+  const line = slots
+    .map(
+      (slot, index) => `${index === 0 ? "M" : "L"} ${x(index)} ${y(slot.count)}`
+    )
+    .join(" ");
+  const area = `${line} L ${x(slots.length - 1)} ${margin.top + plotHeight} L ${x(0)} ${margin.top + plotHeight} Z`;
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="w-full h-auto"
+      role="img"
+      aria-label="API requests per hour over the last 24 hours"
+    >
+      <defs>
+        <linearGradient id="requests-area" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#34d399" stopOpacity="0.3" />
+          <stop offset="100%" stopColor="#34d399" stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill="url(#requests-area)" />
+      <path
+        d={line}
+        fill="none"
+        stroke="#34d399"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {slots.map((slot, index) => (
+        <rect
+          key={slot.hour}
+          x={x(index) - plotWidth / slots.length / 2}
+          y={margin.top}
+          width={plotWidth / slots.length}
+          height={plotHeight}
+          fill="transparent"
+        >
+          <title>{`${slot.hour.slice(11)}:00 UTC · ${slot.count} requests`}</title>
+        </rect>
+      ))}
+      <text x={x(0)} y={height - 6} fill="#737373" fontSize="10">
+        {slots[0]?.hour.slice(11)}:00
+      </text>
+      <text
+        x={x(slots.length - 1)}
+        y={height - 6}
+        textAnchor="end"
+        fill="#737373"
+        fontSize="10"
+      >
+        now
+      </text>
+    </svg>
+  );
+}
+
+function BreakdownBars({
+  rows,
+  color,
+}: {
+  rows: Array<{ value: string; count: number }>;
+  color: string;
+}) {
+  const total = rows.reduce((sum, row) => sum + row.count, 0);
+  if (total === 0) {
+    return <p className="text-sm text-neutral-500">No data yet.</p>;
+  }
+  return (
+    <div className="space-y-3.5">
+      {rows.map((row) => {
+        const share = (row.count / total) * 100;
+        return (
+          <div key={row.value}>
+            <div className="flex items-baseline justify-between gap-3 text-sm mb-1.5">
+              <span className="truncate">{row.value}</span>
+              <span className="shrink-0 tabular-nums text-neutral-400">
+                {row.count.toLocaleString()}
+                <span className="text-neutral-500 ml-2">
+                  {share >= 10 ? Math.round(share) : share.toFixed(1)}%
+                </span>
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden">
               <div
-                className="w-full rounded-lg bg-blue-500/80 min-h-[2px]"
-                style={{ height: `${(row.visitors / max) * 100}%` }}
-                title={`${row.visitors} users, ${row.sessions} sessions, ${formatDuration(row.activeSeconds)}`}
+                className="h-full rounded-full"
+                style={{
+                  width: `${Math.max(1, share)}%`,
+                  backgroundColor: color,
+                  opacity: 0.85,
+                }}
               />
             </div>
-            <span className="text-[10px] text-neutral-500 tabular-nums">
-              {row.day.slice(5)}
-            </span>
           </div>
-        ))}
-      </div>
+        );
+      })}
     </div>
   );
 }
