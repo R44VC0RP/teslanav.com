@@ -151,7 +151,7 @@ export function SettingsModal({
                 <div>
                   <div className="text-lg font-semibold">Help Sponsor This Project</div>
                   <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
-                    TeslaNav will always be free and ad-free. Your support helps keep it that way!
+                    Your support helps cover hosting, data maintenance, and ongoing development.
                   </div>
                 </div>
                 {/* QR Code */}
