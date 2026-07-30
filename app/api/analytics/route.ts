@@ -4,6 +4,7 @@ import { z } from "zod";
 import { logAppEvent, recordAnalytics } from "@/lib/db";
 
 const eventNames = [
+  "camera_alert_triggered",
   "map_mode_changed",
   "map_style_changed",
   "settings_opened",
@@ -11,6 +12,7 @@ const eventNames = [
   "police_alert_triggered",
   "report_opened",
   "report_submitted",
+  "report_voted",
   "speed_cameras_toggled",
   "sponsor_clicked",
   "suggestion_sent",

@@ -377,6 +377,20 @@ export function useWazeAlerts({
     [getAlertsFromCache, updateCachedTileBoundsState]
   );
 
+  const removeLocalAlert = useCallback(
+    (alertId: string) => {
+      tileCache.current = tileCache.current.map((tile) => ({
+        ...tile,
+        alerts: tile.alerts.filter((alert) => alert.id !== alertId),
+      }));
+      setAlerts((previous) =>
+        previous.filter((alert) => alert.id !== alertId)
+      );
+      updateCachedTileBoundsState();
+    },
+    [updateCachedTileBoundsState]
+  );
+
   // Debounced fetch when bounds change
   useEffect(() => {
     if (!enabled || !bounds) return;
@@ -437,6 +451,7 @@ export function useWazeAlerts({
     error,
     refetch: () => bounds && fetchAlerts(bounds, true),
     addLocalAlert,
+    removeLocalAlert,
     // Dev mode - stable reference that only updates when cache changes
     cachedTileBounds,
   };

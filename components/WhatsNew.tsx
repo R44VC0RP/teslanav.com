@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Sparkles as SparklesIcon,
-  SunMoon as SunMoonIcon,
+  ThumbsUp as ThumbsUpIcon,
   type LucideIcon,
 } from "lucide-react";
 
@@ -13,7 +13,7 @@ import {
  * deployment ships something worth announcing and every device shows the
  * panel exactly once more.
  */
-const WHATS_NEW_ID = "2026-07-29-reports-cameras-theme";
+const WHATS_NEW_ID = "2026-07-30-camera-alerts-voting";
 const STORAGE_KEY = "teslanav-whats-new-seen";
 const SHOW_DELAY_MS = 2_500;
 const AUTO_DISMISS_MS = 150_000; // ~2.5 minutes
@@ -28,22 +28,16 @@ interface WhatsNewEntry {
 
 const ENTRIES: WhatsNewEntry[] = [
   {
-    image: "/icons/police.svg",
-    title: "Report it yourself",
-    description:
-      "Tap the new Report button to drop police, hazards, and more at your location for other drivers.",
-  },
-  {
     image: "/icons/speed-camera.svg",
-    title: "Speed & red-light cameras",
+    title: "Camera warnings",
     description:
-      "Fixed camera locations are now on the map. Toggle them in Settings.",
+      "Get warned when a speed or red-light camera is ahead of you. Set the distance in Settings.",
   },
   {
-    Icon: SunMoonIcon,
-    title: "Pick your theme",
+    Icon: ThumbsUpIcon,
+    title: "Is it still there?",
     description:
-      "Always light, always dark, or auto with sunrise and sunset — in Settings → Appearance.",
+      "Tap any driver report on the map to confirm it or mark it gone — reports clear faster when they're stale.",
   },
 ];
 

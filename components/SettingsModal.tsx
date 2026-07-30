@@ -28,6 +28,8 @@ interface SettingsModalProps {
   onPoliceAlertDistanceChange: (value: number) => void;
   policeAlertSound: boolean;
   onTogglePoliceAlertSound: (value: boolean) => void;
+  cameraAlertDistance: number;
+  onCameraAlertDistanceChange: (value: number) => void;
 }
 
 export function SettingsModal({
@@ -49,7 +51,16 @@ export function SettingsModal({
   onPoliceAlertDistanceChange,
   policeAlertSound,
   onTogglePoliceAlertSound,
+  cameraAlertDistance,
+  onCameraAlertDistanceChange,
 }: SettingsModalProps) {
+  const distanceOptions = [
+    { value: 0, imperial: "Off", metric: "Off" },
+    { value: 402, imperial: "¼ mi", metric: "400 m" },
+    { value: 805, imperial: "½ mi", metric: "800 m" },
+    { value: 1609, imperial: "1 mi", metric: "1.6 km" },
+    { value: 3219, imperial: "2 mi", metric: "3.2 km" },
+  ].map(({ value, ...labels }) => ({ value, label: labels[unitSystem] }));
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
 
@@ -240,13 +251,7 @@ export function SettingsModal({
                     </div>
                   </div>
                   <div className="flex gap-2 flex-wrap">
-                    {[
-                      { value: 0, imperial: "Off", metric: "Off" },
-                      { value: 402, imperial: "¼ mi", metric: "400 m" },
-                      { value: 805, imperial: "½ mi", metric: "800 m" },
-                      { value: 1609, imperial: "1 mi", metric: "1.6 km" },
-                      { value: 3219, imperial: "2 mi", metric: "3.2 km" },
-                    ].map(({ value, ...labels }) => ({ value, label: labels[unitSystem] })).map((option) => (
+                    {distanceOptions.map((option) => (
                       <button
                         key={option.value}
                         onClick={() => onPoliceAlertDistanceChange(option.value)}
@@ -266,18 +271,54 @@ export function SettingsModal({
                   </div>
                 </div>
 
+                {/* Camera Alert Distance Selector */}
+                <div className={`
+                  p-5 rounded-xl
+                  ${isDarkMode ? "bg-white/5" : "bg-black/5"}
+                `}>
+                  <div className="flex items-center gap-4 mb-4">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src="/icons/speed-camera.svg" alt="" className="w-8 h-8" />
+                    <div>
+                      <div className="text-lg font-medium">Camera Warnings</div>
+                      <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
+                        Warn when a speed or red-light camera is ahead (needs the Speed Cameras layer)
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    {distanceOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => onCameraAlertDistanceChange(option.value)}
+                        className={`
+                          px-4 py-2.5 rounded-xl text-base font-medium transition-all
+                          ${cameraAlertDistance === option.value
+                            ? "bg-amber-500 text-white"
+                            : isDarkMode
+                              ? "bg-white/10 hover:bg-white/20 text-white"
+                              : "bg-black/10 hover:bg-black/20 text-black"
+                          }
+                        `}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Sound Alert Toggle */}
                 <div className={`
                   flex items-center justify-between p-5 rounded-xl
                   ${isDarkMode ? "bg-white/5" : "bg-black/5"}
-                  ${policeAlertDistance === 0 ? "opacity-50 pointer-events-none" : ""}
+                  ${policeAlertDistance === 0 && cameraAlertDistance === 0 ? "opacity-50 pointer-events-none" : ""}
                 `}>
                   <div className="flex items-center gap-4">
                     <span className="text-3xl">🔊</span>
                     <div>
                       <div className="text-lg font-medium">Sound Alert</div>
                       <div className={`text-base ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
-                        Play audio when police are nearby
+                        Play audio for police and camera warnings
                       </div>
                     </div>
                   </div>

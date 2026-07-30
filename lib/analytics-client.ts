@@ -1,4 +1,5 @@
 export type AnalyticsEventName =
+  | "camera_alert_triggered"
   | "map_mode_changed"
   | "map_style_changed"
   | "settings_opened"
@@ -6,6 +7,7 @@ export type AnalyticsEventName =
   | "police_alert_triggered"
   | "report_opened"
   | "report_submitted"
+  | "report_voted"
   | "speed_cameras_toggled"
   | "theme_mode_changed"
   | "sponsor_clicked"

@@ -100,6 +100,7 @@ interface UsageData {
     createdAt: number;
     expiresAt: number;
     confirmations: number;
+    dismissals: number;
     deletedAt: number | null;
   }>;
 }
@@ -467,6 +468,7 @@ export default function AdminPage() {
                         <span className="min-w-0 truncate text-neutral-400 tabular-nums">
                           {report.lat.toFixed(5)}, {report.lon.toFixed(5)}
                           {report.confirmations > 0 ? ` · ${report.confirmations}× confirmed` : ""}
+                          {report.dismissals > 0 ? ` · ${report.dismissals}× gone` : ""}
                         </span>
                         <span
                           className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${

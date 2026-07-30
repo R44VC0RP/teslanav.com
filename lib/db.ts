@@ -45,6 +45,7 @@ function createDatabase(): Database.Database {
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL,
       confirmations INTEGER NOT NULL DEFAULT 0,
+      dismissals INTEGER NOT NULL DEFAULT 0,
       deleted_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_user_reports_expires ON user_reports (expires_at);
@@ -194,6 +195,15 @@ function createDatabase(): Database.Database {
       PRIMARY KEY (report_day, recipient)
     );
   `);
+  // Additive migration for databases created before report voting existed.
+  const userReportColumns = db
+    .prepare(`PRAGMA table_info(user_reports)`)
+    .all() as Array<{ name: string }>;
+  if (!userReportColumns.some((column) => column.name === "dismissals")) {
+    db.exec(
+      `ALTER TABLE user_reports ADD COLUMN dismissals INTEGER NOT NULL DEFAULT 0`
+    );
+  }
   return db;
 }
 
@@ -303,7 +313,7 @@ export function listSuggestions(limit = 30): SuggestionRow[] {
 }
 
 const USER_REPORT_COLUMNS = `id, type, lat, lon,
-       created_at AS createdAt, expires_at AS expiresAt, confirmations`;
+       created_at AS createdAt, expires_at AS expiresAt, confirmations, dismissals`;
 
 export interface UserReportAdminRow extends UserReportRecord {
   deletedAt: number | null;
@@ -319,6 +329,7 @@ interface UserReportRecord {
   createdAt: number;
   expiresAt: number;
   confirmations: number;
+  dismissals: number;
 }
 
 export function insertUserReport(report: {
@@ -353,7 +364,40 @@ export function insertUserReport(report: {
     createdAt: now,
     expiresAt: now + report.ttlMs,
     confirmations: 0,
+    dismissals: 0,
   };
+}
+
+export function getUserReport(id: string): UserReportRecord | null {
+  const row = getDb()
+    .prepare(
+      `SELECT ${USER_REPORT_COLUMNS} FROM user_reports
+       WHERE id = ? AND deleted_at IS NULL`
+    )
+    .get(id) as UserReportRecord | undefined;
+  return row ?? null;
+}
+
+/**
+ * Register a "gone" vote. Reaching the threshold expires the report
+ * immediately so it drops out of alert merges on the next request.
+ */
+export function dismissUserReport(
+  id: string,
+  expireAfter = 3
+): { report: UserReportRecord | null; removed: boolean } {
+  const now = Date.now();
+  const result = getDb()
+    .prepare(
+      `UPDATE user_reports
+       SET dismissals = dismissals + 1,
+           expires_at = CASE WHEN dismissals + 1 >= ? THEN ? ELSE expires_at END
+       WHERE id = ? AND deleted_at IS NULL AND expires_at > ?`
+    )
+    .run(expireAfter, now, id, now);
+  if (result.changes === 0) return { report: null, removed: false };
+  const report = getUserReport(id);
+  return { report, removed: (report?.expiresAt ?? 0) <= now };
 }
 
 export function findNearbyActiveUserReport(

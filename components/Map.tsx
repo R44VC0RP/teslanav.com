@@ -20,6 +20,10 @@ interface MapProps {
   alerts?: WazeAlert[];
   speedCameras?: SpeedCamera[];
   unitSystem?: UnitSystem;
+  onReportVote?: (
+    reportId: string,
+    vote: "confirm" | "gone"
+  ) => Promise<{ removed?: boolean } | null>;
   onBoundsChange?: (bounds: MapBounds) => void;
   onCenteredChange?: (isCentered: boolean) => void;
   route?: RouteData | null; // Legacy single route support
@@ -170,6 +174,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
     alerts = [],
     speedCameras = [],
     unitSystem = "imperial",
+    onReportVote,
     onBoundsChange,
     onCenteredChange,
     route,
@@ -1073,7 +1078,64 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
           closeButton: false,
           maxWidth: "240px",
           className: `alert-popup-container ${isDarkMode ? "dark" : ""}`,
-        }).setHTML(popupContent);
+        });
+
+        // First-party reports get "Still there / Gone" voting buttons.
+        const reportId = alert.id.startsWith("alert-user/")
+          ? alert.id.slice("alert-user/".length)
+          : null;
+        if (reportId && onReportVote) {
+          const content = document.createElement("div");
+          content.innerHTML = popupContent;
+          const popupBody = content.querySelector(".alert-popup") ?? content;
+
+          const voteRow = document.createElement("div");
+          voteRow.style.cssText = "display:flex; gap:8px; margin-top:10px;";
+          const status = document.createElement("div");
+          status.style.cssText = `margin-top:10px; font-size:12px; font-weight:600; text-align:center; color:${popupSubtext};`;
+
+          const makeButton = (
+            label: string,
+            vote: "confirm" | "gone",
+            accent: string
+          ) => {
+            const button = document.createElement("button");
+            button.textContent = label;
+            button.style.cssText = `
+              flex:1; padding:9px 8px; border-radius:8px; cursor:pointer;
+              font-size:13px; font-weight:600;
+              border:1px solid ${accent};
+              color:${accent}; background:transparent;
+            `;
+            button.addEventListener("click", async (event) => {
+              event.stopPropagation();
+              for (const child of voteRow.children) {
+                (child as HTMLButtonElement).disabled = true;
+                (child as HTMLElement).style.opacity = "0.4";
+              }
+              const result = await onReportVote(reportId, vote).catch(() => null);
+              status.textContent =
+                result === null
+                  ? "Vote failed — try again later"
+                  : vote === "confirm"
+                    ? "Thanks — report renewed"
+                    : result.removed
+                      ? "Thanks — report cleared"
+                      : "Thanks — noted";
+              voteRow.replaceWith(status);
+            });
+            return button;
+          };
+
+          voteRow.append(
+            makeButton("👍 Still there", "confirm", "#34d399"),
+            makeButton("👎 Gone", "gone", "#f87171")
+          );
+          popupBody.appendChild(voteRow);
+          popup.setDOMContent(content);
+        } else {
+          popup.setHTML(popupContent);
+        }
 
         const marker = new maplibregl.Marker({ element: el, anchor: "bottom" })
           .setLngLat([alert.location.x, alert.location.y])
@@ -1102,7 +1164,7 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
         markersRef.current.delete(id);
       }
     }
-  }, [alerts, mapLoaded, isDarkMode]);
+  }, [alerts, mapLoaded, isDarkMode, onReportVote]);
 
   // Fixed speed / red-light camera markers (incremental, keyed by camera id)
   useEffect(() => {

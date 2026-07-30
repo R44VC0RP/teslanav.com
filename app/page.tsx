@@ -123,6 +123,17 @@ export default function Home() {
   });
   const [policeAlertToast, setPoliceAlertToast] = useState<{ show: boolean; expanding: boolean } | null>(null);
   const alertedPoliceIdsRef = useRef<Set<string>>(new Set());
+  // Camera proximity alerts mirror the police alert flow
+  const [cameraAlertDistance, setCameraAlertDistance] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("teslanav-camera-distance");
+      return saved !== null ? parseInt(saved, 10) : 805;
+    }
+    return 805; // meters (~0.5 miles), 0 = off
+  });
+  const [cameraAlertToast, setCameraAlertToast] = useState<{ label: string } | null>(null);
+  const alertedCameraIdsRef = useRef<Set<string>>(new Set());
+  const lastCameraAlertTimeRef = useRef<number>(0);
   const alertAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastAlertTimeRef = useRef<number>(0);
   const ALERT_COOLDOWN_MS = 5000; // 5 seconds between alerts
@@ -143,7 +154,13 @@ export default function Home() {
     setThemeMode(value);
     localStorage.setItem("teslanav-theme-mode", value);
   }, []);
-  const { alerts, loading: alertsLoading, cachedTileBounds, addLocalAlert } = useWazeAlerts({
+  const {
+    alerts,
+    loading: alertsLoading,
+    cachedTileBounds,
+    addLocalAlert,
+    removeLocalAlert,
+  } = useWazeAlerts({
     bounds,
     enabled: showWazeAlerts,
   });
@@ -264,6 +281,16 @@ export default function Home() {
     alertedPoliceIdsRef.current.clear();
   }, []);
 
+  // Save camera alert distance to localStorage
+  const handleCameraAlertDistanceChange = useCallback((value: number) => {
+    setCameraAlertDistance(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("teslanav-camera-distance", value.toString());
+    }
+    // Clear alerted IDs when changing distance so alerts can re-trigger
+    alertedCameraIdsRef.current.clear();
+  }, []);
+
   // Save police alert sound preference to localStorage
   const handleTogglePoliceAlertSound = useCallback((value: boolean) => {
     setPoliceAlertSound(value);
@@ -370,6 +397,100 @@ export default function Home() {
       }
     }
   }, [latitude, longitude, alerts, policeAlertDistance, policeAlertSound, showWazeAlerts, getDistanceInMeters, effectiveHeading, isAlertAhead]);
+
+  // Fixed camera proximity alerts (speed / red-light), mirroring the police
+  // flow: warmup marks nearby cameras as seen, then only newly approached
+  // cameras ahead of the direction of travel trigger a warning.
+  useEffect(() => {
+    if (!latitude || !longitude || !showSpeedCameras) return;
+    if (cameraAlertDistance === 0) return;
+
+    const now = Date.now();
+    if (pageLoadTimeRef.current === null) pageLoadTimeRef.current = now;
+    const isInWarmupPeriod = now - pageLoadTimeRef.current < WARMUP_PERIOD_MS;
+
+    if (isInWarmupPeriod) {
+      for (const camera of cameras) {
+        const distance = getDistanceInMeters(
+          latitude,
+          longitude,
+          camera.location.lat,
+          camera.location.lon
+        );
+        if (distance <= cameraAlertDistance) {
+          alertedCameraIdsRef.current.add(camera.id);
+        }
+      }
+      return;
+    }
+
+    if (now - lastCameraAlertTimeRef.current < ALERT_COOLDOWN_MS) return;
+
+    for (const camera of cameras) {
+      if (alertedCameraIdsRef.current.has(camera.id)) continue;
+
+      const distance = getDistanceInMeters(
+        latitude,
+        longitude,
+        camera.location.lat,
+        camera.location.lon
+      );
+      if (distance > cameraAlertDistance) continue;
+
+      if (!isAlertAhead(camera.location.lat, camera.location.lon, effectiveHeading)) {
+        alertedCameraIdsRef.current.add(camera.id);
+        continue;
+      }
+
+      alertedCameraIdsRef.current.add(camera.id);
+      lastCameraAlertTimeRef.current = now;
+      const label =
+        camera.type === "red_light_camera"
+          ? "RED LIGHT CAMERA AHEAD"
+          : "SPEED CAMERA AHEAD";
+      // Deferred so the effect body itself never sets state synchronously.
+      setTimeout(() => {
+        setCameraAlertToast({ label });
+      }, 0);
+      if (policeAlertSound && alertAudioRef.current) {
+        alertAudioRef.current.currentTime = 0;
+        alertAudioRef.current.play().catch((err) => {
+          console.log("Audio play failed:", err);
+        });
+      }
+      trackAnalyticsEvent("camera_alert_triggered", camera.type);
+      setTimeout(() => {
+        setCameraAlertToast(null);
+      }, 5000);
+      break;
+    }
+  }, [latitude, longitude, cameras, cameraAlertDistance, showSpeedCameras, policeAlertSound, getDistanceInMeters, effectiveHeading, isAlertAhead]);
+
+  // Forward report votes and reflect the result on the map immediately.
+  const handleReportVote = useCallback(
+    async (
+      reportId: string,
+      vote: "confirm" | "gone"
+    ): Promise<{ removed?: boolean } | null> => {
+      try {
+        const response = await fetch("/api/reports/vote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reportId, vote }),
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        trackAnalyticsEvent("report_voted", vote);
+        if (data.removed) {
+          removeLocalAlert(`alert-user/${reportId}`);
+        }
+        return { removed: Boolean(data.removed) };
+      } catch {
+        return null;
+      }
+    },
+    [removeLocalAlert]
+  );
 
   const handleBoundsChange = useCallback((newBounds: MapBounds) => {
     setBounds(newBounds);
@@ -508,6 +629,7 @@ export default function Home() {
         alerts={filteredAlerts}
         speedCameras={showSpeedCameras ? cameras : []}
         unitSystem={unitSystem}
+        onReportVote={handleReportVote}
         onBoundsChange={handleBoundsChange}
         onCenteredChange={handleCenteredChange}
         userLocation={{ latitude, longitude, heading, effectiveHeading, speed }}
@@ -888,6 +1010,35 @@ export default function Home() {
         </div>
       )}
 
+      {/* Camera Alert - amber pulldown notification */}
+      {cameraAlertToast && !policeAlertToast?.show && (
+        <div className="fixed inset-0 z-50 pointer-events-none overflow-hidden police-alert-container">
+          {/* Amber edge glow */}
+          <div
+            className="absolute inset-0"
+            style={{
+              background: `
+                linear-gradient(to bottom, rgba(245, 158, 11, 0.55), transparent 25%),
+                linear-gradient(to top, rgba(245, 158, 11, 0.55), transparent 25%),
+                linear-gradient(to right, rgba(245, 158, 11, 0.55), transparent 15%),
+                linear-gradient(to left, rgba(245, 158, 11, 0.55), transparent 15%)
+              `,
+            }}
+          />
+          <div className="absolute top-0 left-0 right-0 flex justify-center police-pulldown">
+            <div className="bg-black/90 backdrop-blur-md text-white px-12 py-6 rounded-b-3xl shadow-2xl border-b border-l border-r border-amber-400/40">
+              <div className="flex items-center gap-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/icons/speed-camera.svg" alt="" className="w-12 h-12" />
+                <span className="text-4xl font-bold tracking-wide">
+                  {cameraAlertToast.label}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Settings Modal */}
       <SettingsModal
         isOpen={showSettings}
@@ -908,6 +1059,8 @@ export default function Home() {
         onPoliceAlertDistanceChange={handlePoliceAlertDistanceChange}
         policeAlertSound={policeAlertSound}
         onTogglePoliceAlertSound={handleTogglePoliceAlertSound}
+        cameraAlertDistance={cameraAlertDistance}
+        onCameraAlertDistanceChange={handleCameraAlertDistanceChange}
       />
 
       {/* Feedback Modal */}
