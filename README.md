@@ -132,7 +132,9 @@ For a production Docker deployment on exe.dev, use
 [`docs/exe-dev-deployment.md`](./docs/exe-dev-deployment.md). Tesla's mTLS
 Fleet Telemetry receiver cannot run behind exe.dev's TLS-terminating edge; the
 repository includes `docker-compose.telemetry.yml` for deploying that receiver
-on a separate host with raw public TCP port 443.
+on a separate host with raw public TCP port 443. For EC2, use
+`deploy/telemetry/deploy.sh` to install and deploy the complete telemetry stack
+over SSH.
 
 ### Notes for self-hosters
 

@@ -112,41 +112,28 @@ Use a conventional VPS or load balancer where the container receives raw TCP
 443 and terminates mTLS itself. Point an A/AAAA record for
 `telemetry.teslanav.com` to that host.
 
-Obtain a valid server certificate for `telemetry.teslanav.com` and place its
-full chain and private key at:
-
-```text
-deploy/secrets/telemetry-cert.pem
-deploy/secrets/telemetry-key.pem
-```
-
-Create `.env.telemetry`:
+For an EC2 deployment, assign an Elastic IP and allow inbound TCP 22, 80, and
+443 in its security group. Point `telemetry.teslanav.com` at that address, then
+run the deployment script from this repository:
 
 ```bash
-TELEMETRY_REDIS_PASSWORD=generate-a-long-random-password
-TESLANAV_INGEST_URL=https://app.teslanav.com/api/telemetry/ingest
-TESLA_TELEMETRY_INGEST_SECRET=the-same-secret-used-by-the-app
+ACME_EMAIL=ops@example.com \
+TESLA_TELEMETRY_INGEST_SECRET=the-same-secret-used-by-the-app \
+./deploy/telemetry/deploy.sh ubuntu@EC2_IP
 ```
 
-Start the raw-port telemetry stack:
+For Amazon Linux, use `ec2-user@EC2_IP`. Pass a second argument when using a
+different telemetry hostname. `SSH_OPTIONS="-i ~/.ssh/key.pem"` can supply a
+specific SSH key.
 
-```bash
-sudo docker compose \
-  --env-file .env.telemetry \
-  -f docker-compose.telemetry.yml \
-  up -d --build
-```
+The script installs Docker when needed, obtains a Let's Encrypt certificate,
+deploys Tesla's official receiver with a private Redis dispatcher and TeslaNav
+forwarder, and installs daily certificate renewal. Only telemetry port 443 is
+published by the stack; Redis remains inside Docker.
 
-This stack runs Tesla's official receiver with decoded records, a private Redis
-dispatcher, and TeslaNav's forwarder. Only port 443 is published; Redis remains
-inside Docker.
-
+The script prints the `TESLA_TELEMETRY_CA` value needed by the exe.dev app.
 Before enrolling vehicles, validate the receiver with Tesla's
-`check_server_cert.sh`, then set `TESLA_TELEMETRY_CA` on the exe.dev app to:
-
-```bash
-base64 -w 0 deploy/secrets/telemetry-cert.pem
-```
+`check_server_cert.sh`.
 
 Restart the application after changing runtime values:
 
