@@ -97,9 +97,13 @@ fi
 
 if ! command -v docker >/dev/null 2>&1; then
   printf '%s\n' "Docker not found; installing Docker Engine..."
-  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-  $SUDO sh /tmp/get-docker.sh
-  rm -f /tmp/get-docker.sh
+  if [[ -r /etc/os-release ]] && . /etc/os-release && [[ "${ID:-}" == "amzn" ]]; then
+    $SUDO dnf install -y docker
+  else
+    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+    $SUDO sh /tmp/get-docker.sh
+    rm -f /tmp/get-docker.sh
+  fi
 fi
 
 $SUDO systemctl enable --now docker
