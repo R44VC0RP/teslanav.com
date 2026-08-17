@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { hasTeslaRouteAccess } from "@/lib/autumn";
+import { getAuthSession, getCurrentTeslaAccount } from "@/lib/current-user";
 import {
   configureFleetTelemetry,
   refreshTeslaAccount,
   virtualKeyPairingUrl,
 } from "@/lib/tesla-api";
-import { getPhoneAccount, hasPaidAccess } from "@/lib/tesla-auth";
 import {
   getLinkSession,
   saveAccount,
@@ -15,7 +16,7 @@ import {
 const schema = z.object({ linkId: z.string().min(1) });
 
 export async function GET(): Promise<NextResponse> {
-  const account = await getPhoneAccount();
+  const account = await getCurrentTeslaAccount();
   if (!account?.selectedVin) {
     return NextResponse.json({ error: "Select a vehicle first" }, { status: 400 });
   }
@@ -26,8 +27,9 @@ export async function GET(): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const account = await getPhoneAccount();
-    if (!account || !hasPaidAccess(account)) {
+    const session = await getAuthSession();
+    const account = await getCurrentTeslaAccount();
+    if (!session || !account || !(await hasTeslaRouteAccess(session.user.id))) {
       return NextResponse.json({ error: "Active subscription required" }, { status: 402 });
     }
     const parsed = schema.safeParse(await request.json());

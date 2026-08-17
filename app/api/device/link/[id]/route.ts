@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  createCarSession,
-  hashToken,
-  hasPaidAccess,
-} from "@/lib/tesla-auth";
-import { getAccount, getLinkSession } from "@/lib/tesla-store";
+import { hasTeslaRouteAccess } from "@/lib/autumn";
+import { createCarSession, hashToken } from "@/lib/tesla-auth";
+import { getLinkSession } from "@/lib/tesla-store";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -26,11 +23,10 @@ export async function GET(
   }
 
   if (link.status === "complete" && link.accountId && link.selectedVin) {
-    const account = await getAccount(link.accountId);
-    if (!account || !hasPaidAccess(account)) {
+    if (!(await hasTeslaRouteAccess(link.accountId))) {
       return NextResponse.json({ status: "subscribed" });
     }
-    await createCarSession(account.id, link.selectedVin);
+    await createCarSession(link.accountId, link.selectedVin);
     return NextResponse.json({
       status: "complete",
       selectedVin: link.selectedVin,

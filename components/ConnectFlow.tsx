@@ -1,14 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useCustomer } from "autumn-js/react";
 import { useSearchParams } from "next/navigation";
-import type { SubscriptionStatus, TeslaVehicle } from "@/types/tesla";
+import { authClient } from "@/lib/auth-client";
+import type { TeslaVehicle } from "@/types/tesla";
 
 interface AccountSummary {
-  email: string | null;
+  email: string;
+  name: string;
+  teslaConnected: boolean;
   vehicles: TeslaVehicle[];
   selectedVin: string | null;
-  subscriptionStatus: SubscriptionStatus;
   hasPaidAccess: boolean;
   telemetryConfiguredAt: string | null;
 }
@@ -20,11 +23,17 @@ export function ConnectFlow() {
   const confirmationCode = searchParams.get("code");
   const checkout = searchParams.get("checkout");
   const oauthError = searchParams.get("error");
+  const session = authClient.useSession();
+  const { attach } = useCustomer();
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [pairingUrl, setPairingUrl] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   const loadAccount = useCallback(async () => {
     const response = await fetch("/api/account", { cache: "no-store" });
@@ -36,6 +45,11 @@ export function ConnectFlow() {
   }, []);
 
   useEffect(() => {
+    if (session.isPending) return;
+    if (!session.data) {
+      setLoading(false);
+      return;
+    }
     const initialLoad = window.setTimeout(() => void loadAccount(), 0);
     if (checkout === "success") {
       const timer = window.setInterval(() => void loadAccount(), 2000);
@@ -47,7 +61,7 @@ export function ConnectFlow() {
       };
     }
     return () => window.clearTimeout(initialLoad);
-  }, [checkout, loadAccount]);
+  }, [checkout, loadAccount, session.data, session.isPending]);
 
   useEffect(() => {
     if (!account?.hasPaidAccess) return;
@@ -77,21 +91,32 @@ export function ConnectFlow() {
   const startCheckout = useCallback(async () => {
     if (!linkId) return;
     setActionLoading(true);
-    const response = await fetch("/api/billing/checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ linkId }),
-    });
-    const data = (await response.json()) as {
-      url?: string;
-      error?: string;
-      alreadySubscribed?: boolean;
-    };
-    if (data.url) window.location.assign(data.url);
-    else if (data.alreadySubscribed) await loadAccount();
-    else setMessage(data.error ?? "Checkout could not be started");
+    try {
+      await attach({
+        planId: process.env.NEXT_PUBLIC_AUTUMN_PLAN_ID ?? "tesla_nav_pro",
+        successUrl: `${window.location.origin}/connect?link=${encodeURIComponent(linkId)}&checkout=success`,
+      });
+      await loadAccount();
+    } catch {
+      setMessage("Checkout could not be started");
+    }
     setActionLoading(false);
-  }, [linkId, loadAccount]);
+  }, [attach, linkId, loadAccount]);
+
+  const submitAuth = useCallback(async () => {
+    setActionLoading(true);
+    setMessage(null);
+    const result =
+      authMode === "sign-up"
+        ? await authClient.signUp.email({ email, password, name })
+        : await authClient.signIn.email({ email, password });
+    if (result.error) {
+      setMessage(result.error.message ?? "Authentication failed");
+    } else {
+      await session.refetch();
+    }
+    setActionLoading(false);
+  }, [authMode, email, name, password, session]);
 
   const finishPairing = useCallback(async () => {
     if (!linkId) return;
@@ -116,14 +141,13 @@ export function ConnectFlow() {
     return <ConnectCard title="Open TeslaNav in your car">Scan the QR code shown in the Tesla browser to connect it.</ConnectCard>;
   }
 
-  if (loading) {
+  if (loading || session.isPending) {
     return <ConnectCard title="Loading">Checking your TeslaNav account…</ConnectCard>;
   }
 
-  if (!account) {
-    const startUrl = `/api/auth/tesla/start?link=${encodeURIComponent(linkId)}&token=${encodeURIComponent(phoneToken ?? "")}`;
+  if (!session.data) {
     return (
-      <ConnectCard title="Connect TeslaNav">
+      <ConnectCard title={authMode === "sign-in" ? "Sign in to TeslaNav" : "Create your TeslaNav account"}>
         {confirmationCode && (
           <div className="mb-6 rounded-2xl bg-gray-100 p-5 text-center">
             <p className="text-sm text-gray-500">Confirm this code matches your car</p>
@@ -132,6 +156,32 @@ export function ConnectFlow() {
             </p>
           </div>
         )}
+        <div className="space-y-3">
+          {authMode === "sign-up" && (
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Name" autoComplete="name" className="min-h-12 w-full rounded-xl border border-gray-300 px-4 text-base" />
+          )}
+          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" type="email" autoComplete="email" className="min-h-12 w-full rounded-xl border border-gray-300 px-4 text-base" />
+          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete={authMode === "sign-up" ? "new-password" : "current-password"} className="min-h-12 w-full rounded-xl border border-gray-300 px-4 text-base" />
+        </div>
+        {message && <Notice>{message}</Notice>}
+        <button type="button" disabled={actionLoading || !email || password.length < 10 || (authMode === "sign-up" && !name)} onClick={() => void submitAuth()} className="mt-4 min-h-12 w-full rounded-xl bg-gray-950 px-5 py-3 font-semibold text-white disabled:opacity-50">
+          {actionLoading ? "Please wait…" : authMode === "sign-in" ? "Sign in" : "Create account"}
+        </button>
+        <button type="button" onClick={() => setAuthMode(authMode === "sign-in" ? "sign-up" : "sign-in")} className="mt-4 min-h-11 w-full text-sm font-medium text-red-600">
+          {authMode === "sign-in" ? "New to TeslaNav? Create an account" : "Already have an account? Sign in"}
+        </button>
+      </ConnectCard>
+    );
+  }
+
+  if (!account) {
+    return <ConnectCard title="Loading">Loading your TeslaNav account…</ConnectCard>;
+  }
+
+  if (!account.teslaConnected) {
+    const startUrl = `/api/auth/tesla/start?link=${encodeURIComponent(linkId)}&token=${encodeURIComponent(phoneToken ?? "")}`;
+    return (
+      <ConnectCard title="Connect your Tesla">
         {oauthError && <Notice>Sign-in was canceled or expired. Please try again.</Notice>}
         <p className="mb-6 text-gray-600">
           Continue on Tesla&apos;s secure sign-in page. TeslaNav never receives your Tesla password.

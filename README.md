@@ -93,10 +93,16 @@ INBOUND_API_KEY=...
 # Admin dashboard — protects /api/admin/* routes
 ADMIN_API_KEY=your-secret-key
 
-# Tesla account linking, Fleet API, telemetry, and Stripe
+# Better Auth, Autumn billing, Tesla Fleet API, and telemetry
 # See .env.example for the complete production configuration.
 TESLANAV_SESSION_SECRET=a-random-secret-with-at-least-32-characters
 NEXT_PUBLIC_APP_URL=https://app.teslanav.com
+BETTER_AUTH_SECRET=another-random-secret
+BETTER_AUTH_URL=https://app.teslanav.com
+TESLANAV_DATABASE_PATH=./data/teslanav.sqlite
+AUTUMN_SECRET_KEY=
+AUTUMN_TESLA_ROUTE_FEATURE_ID=tesla_route
+NEXT_PUBLIC_AUTUMN_PLAN_ID=tesla_nav_pro
 TESLA_CLIENT_ID=
 TESLA_CLIENT_SECRET=
 TESLA_REDIRECT_URI=https://app.teslanav.com/api/auth/tesla/callback
@@ -106,24 +112,13 @@ TESLA_COMMAND_PROXY_URL=
 TESLA_TELEMETRY_HOSTNAME=telemetry.teslanav.com
 TESLA_TELEMETRY_CA=
 TESLA_TELEMETRY_INGEST_SECRET=
-STRIPE_SECRET_KEY=
-STRIPE_WEBHOOK_SECRET=
-STRIPE_PRICE_ID=
 ```
 
 Only `NEXT_PUBLIC_MAPBOX_TOKEN` is strictly required to run the map. Other services degrade gracefully when keys are absent (search, alerts, and recording will not function).
 
 ## Self-Hosting
 
-### Vercel (recommended)
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/your-username/teslanav.com)
-
-1. Click **Deploy** and connect your GitHub repository
-2. Add all required environment variables in the Vercel dashboard
-3. Enable **Vercel Blob** storage in the Storage tab of your project
-
-### Docker / Node
+### Docker on exe.dev
 
 ```bash
 bun run build
@@ -170,9 +165,11 @@ All external API calls go through server-side route handlers to keep API keys of
 ### Tesla account and route integration
 
 The Tesla browser creates a ten-minute, single-use linking session and displays
-a QR code. The phone completes Tesla OAuth, Stripe Checkout, and Tesla virtual
-key pairing. Once linked, the browser receives a one-year, HTTP-only device
-session cookie; users do not enter credentials in the vehicle.
+a QR code. On the phone, Better Auth manages the TeslaNav account, Tesla OAuth
+connects the vehicle, and Autumn manages plan checkout and access. SQLite is
+stored on the persistent Docker volume. Once linked, the browser receives a
+one-year, HTTP-only device session cookie; users do not enter credentials in
+the vehicle.
 
 Tesla Fleet Telemetry requires a separate public receiver that accepts the
 vehicle's mTLS WebSocket connection on port 443. The receiver should normalize
@@ -197,10 +194,10 @@ Content-Type: application/json
 ```
 
 `RouteLine` is decoded server-side and retained for 12 hours. The car polls the
-authenticated route endpoint every ten seconds. Stripe should send subscription
-webhooks to `/api/stripe/webhook`; at minimum subscribe to
-`customer.subscription.created`, `customer.subscription.updated`, and
-`customer.subscription.deleted`.
+authenticated route endpoint every ten seconds. Route access is checked
+server-side against the Autumn feature configured by
+`AUTUMN_TESLA_ROUTE_FEATURE_ID`; TeslaNav does not process billing webhooks
+directly.
 
 ## Contributing
 

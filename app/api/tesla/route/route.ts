@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
-import {
-  getCarSession,
-  hasPaidAccess,
-} from "@/lib/tesla-auth";
-import { getAccount, getTeslaRoute } from "@/lib/tesla-store";
+import { hasTeslaRouteAccess } from "@/lib/autumn";
+import { getCarSession } from "@/lib/tesla-auth";
+import { getTeslaRoute } from "@/lib/tesla-store";
 
 export async function GET(): Promise<NextResponse> {
   const session = await getCarSession();
   if (!session) {
     return NextResponse.json({ linked: false }, { status: 401 });
   }
-  const account = await getAccount(session.accountId);
-  if (!account || !hasPaidAccess(account)) {
+  if (!(await hasTeslaRouteAccess(session.accountId))) {
     return NextResponse.json(
       { linked: true, subscribed: false },
       { status: 402 }

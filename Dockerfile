@@ -12,12 +12,14 @@ ARG NEXT_PUBLIC_APP_URL=https://app.teslanav.com
 ARG NEXT_PUBLIC_MAPBOX_TOKEN
 ARG NEXT_PUBLIC_POSTHOG_KEY
 ARG NEXT_PUBLIC_POSTHOG_HOST=https://us.posthog.com
+ARG NEXT_PUBLIC_AUTUMN_PLAN_ID=tesla_nav_pro
 ARG NEXT_PUBLIC_PROJECT_SHUTDOWN=false
 
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV NEXT_PUBLIC_MAPBOX_TOKEN=$NEXT_PUBLIC_MAPBOX_TOKEN
 ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
 ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
+ENV NEXT_PUBLIC_AUTUMN_PLAN_ID=$NEXT_PUBLIC_AUTUMN_PLAN_ID
 ENV NEXT_PUBLIC_PROJECT_SHUTDOWN=$NEXT_PUBLIC_PROJECT_SHUTDOWN
 ENV NEXT_TELEMETRY_DISABLED=1
 
@@ -32,7 +34,9 @@ ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
 RUN addgroup --system --gid 1001 nodejs \
-  && adduser --system --uid 1001 nextjs
+  && adduser --system --uid 1001 nextjs \
+  && mkdir -p /data \
+  && chown nextjs:nodejs /data
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./

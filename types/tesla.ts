@@ -1,10 +1,3 @@
-export type SubscriptionStatus =
-  | "inactive"
-  | "trialing"
-  | "active"
-  | "past_due"
-  | "canceled";
-
 export interface TeslaVehicle {
   vin: string;
   displayName: string;
@@ -21,9 +14,6 @@ export interface TeslaAccount {
   accessTokenExpiresAt: number;
   vehicles: TeslaVehicle[];
   selectedVin: string | null;
-  subscriptionStatus: SubscriptionStatus;
-  stripeCustomerId: string | null;
-  stripeSubscriptionId: string | null;
   telemetryConfiguredAt: string | null;
   createdAt: string;
   updatedAt: string;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { AutumnProvider } from "autumn-js/react";
 
 // Register service worker for map tile caching
 function useServiceWorker() {
@@ -27,5 +28,5 @@ export function Providers({ children }: { children: React.ReactNode }) {
   // Register service worker for tile caching
   useServiceWorker();
   
-  return <>{children}</>;
+  return <AutumnProvider useBetterAuth>{children}</AutumnProvider>;
 }

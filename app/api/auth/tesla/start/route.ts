@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { redis } from "@/lib/redis";
-import {
-  buildTeslaAuthorizeUrl,
-} from "@/lib/tesla-api";
+import { getAuthSession } from "@/lib/current-user";
+import { database } from "@/lib/database";
+import { buildTeslaAuthorizeUrl } from "@/lib/tesla-api";
 import { hashToken, randomToken } from "@/lib/tesla-auth";
 import { getLinkSession } from "@/lib/tesla-store";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    const session = await getAuthSession();
+    if (!session) {
+      return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+    }
     const linkId = request.nextUrl.searchParams.get("link");
     const phoneToken = request.nextUrl.searchParams.get("token");
     if (!linkId || !phoneToken) {
@@ -20,11 +23,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const state = randomToken();
     const nonce = randomToken();
-    await redis.set(
-      `tesla:oauth-state:${hashToken(state)}`,
-      { linkId, nonce },
-      { ex: 10 * 60 }
-    );
+    database
+      .prepare(
+        `INSERT INTO tesla_oauth_state (
+          state_hash, user_id, link_id, nonce, expires_at
+        ) VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(
+        hashToken(state),
+        session.user.id,
+        linkId,
+        nonce,
+        new Date(Date.now() + 10 * 60 * 1000).toISOString()
+      );
     return NextResponse.redirect(buildTeslaAuthorizeUrl(state, nonce));
   } catch (error) {
     console.error("[TeslaOAuth] start failed:", error);

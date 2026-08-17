@@ -8,6 +8,7 @@ services:
         NEXT_PUBLIC_MAPBOX_TOKEN: ${NEXT_PUBLIC_MAPBOX_TOKEN}
         NEXT_PUBLIC_POSTHOG_KEY: ${NEXT_PUBLIC_POSTHOG_KEY:-}
         NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.posthog.com}
+        NEXT_PUBLIC_AUTUMN_PLAN_ID: ${NEXT_PUBLIC_AUTUMN_PLAN_ID:-tesla_nav_pro}
         NEXT_PUBLIC_PROJECT_SHUTDOWN: "false"
     env_file:
       - path: .env.production
@@ -18,12 +19,14 @@ services:
       NEXT_PUBLIC_PROJECT_SHUTDOWN: "false"
       TESLA_COMMAND_PROXY_URL: https://vehicle-command:4443
       TESLA_PUBLIC_KEY_FILE: /run/tesla/fleet-public-key.pem
+      TESLANAV_DATABASE_PATH: /data/teslanav.sqlite
       NODE_EXTRA_CA_CERTS: /run/tesla/command-proxy-cert.pem
     ports:
       - "3000:3000"
     volumes:
       - ./deploy/secrets/fleet-public-key.pem:/run/tesla/fleet-public-key.pem:ro
       - ./deploy/secrets/command-proxy-cert.pem:/run/tesla/command-proxy-cert.pem:ro
+      - teslanav-data:/data
     depends_on:
       vehicle-command:
         condition: service_started
@@ -56,4 +59,5 @@ services:
       - no-new-privileges:true
 
 volumes:
+  teslanav-data:
   vehicle-command-cache:

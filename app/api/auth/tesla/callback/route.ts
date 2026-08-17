@@ -1,12 +1,10 @@
-import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { redis } from "@/lib/redis";
+import { database } from "@/lib/database";
 import {
   exchangeTeslaCode,
   fetchTeslaProfile,
 } from "@/lib/tesla-api";
 import {
-  createPhoneSession,
   encryptSecret,
   hashToken,
 } from "@/lib/tesla-auth";
@@ -19,6 +17,7 @@ import {
 import type { TeslaAccount } from "@/types/tesla";
 
 interface OAuthState {
+  userId: string;
   linkId: string;
   nonce: string;
 }
@@ -35,9 +34,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const stateKey = `tesla:oauth-state:${hashToken(state)}`;
-    const oauthState = await redis.get<OAuthState>(stateKey);
-    await redis.del(stateKey);
+    const stateHash = hashToken(state);
+    const stateRow = database
+      .prepare(
+        `SELECT user_id, link_id, nonce FROM tesla_oauth_state
+         WHERE state_hash = ? AND expires_at > ?`
+      )
+      .get(stateHash, new Date().toISOString()) as
+      | { user_id: string; link_id: string; nonce: string }
+      | undefined;
+    database
+      .prepare("DELETE FROM tesla_oauth_state WHERE state_hash = ?")
+      .run(stateHash);
+    const oauthState: OAuthState | null = stateRow
+      ? {
+          userId: stateRow.user_id,
+          linkId: stateRow.link_id,
+          nonce: stateRow.nonce,
+        }
+      : null;
     if (!oauthState) throw new Error("OAuth state expired");
 
     const link = await getLinkSession(oauthState.linkId);
@@ -46,12 +61,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const tokens = await exchangeTeslaCode(code);
     const profile = await fetchTeslaProfile(tokens.accessToken);
     const existing = await findAccountByTeslaUser(tokens.subject);
+    if (existing && existing.id !== oauthState.userId) {
+      throw new Error("This Tesla account is linked to another TeslaNav user");
+    }
     const now = new Date().toISOString();
-    const accountId =
-      existing?.id ??
-      createHash("sha256").update(tokens.subject).digest("hex").slice(0, 32);
     const account: TeslaAccount = {
-      id: accountId,
+      id: oauthState.userId,
       teslaUserId: tokens.subject,
       email: profile.email,
       region: process.env.TESLA_FLEET_REGION ?? "na",
@@ -62,18 +77,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       selectedVin:
         existing?.selectedVin ??
         (profile.vehicles.length === 1 ? profile.vehicles[0].vin : null),
-      subscriptionStatus: existing?.subscriptionStatus ?? "inactive",
-      stripeCustomerId: existing?.stripeCustomerId ?? null,
-      stripeSubscriptionId: existing?.stripeSubscriptionId ?? null,
       telemetryConfiguredAt: existing?.telemetryConfiguredAt ?? null,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
     await saveAccount(account);
-    await createPhoneSession(account.id);
     link.accountId = account.id;
     link.selectedVin = account.selectedVin;
     link.status = "authorized";
+    link.expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
     await saveLinkSession(link);
 
     return NextResponse.redirect(

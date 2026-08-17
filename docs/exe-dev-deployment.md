@@ -40,8 +40,10 @@ Fill in `.env.production`. At minimum, production needs:
 - `NEXT_PUBLIC_MAPBOX_TOKEN`
 - `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
 - `TESLANAV_SESSION_SECRET`
+- `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL=https://app.teslanav.com`
+- `AUTUMN_SECRET_KEY`, `AUTUMN_TESLA_ROUTE_FEATURE_ID`, and
+  `NEXT_PUBLIC_AUTUMN_PLAN_ID`
 - Tesla partner OAuth credentials
-- Stripe credentials
 - `TESLA_TELEMETRY_HOSTNAME=telemetry.teslanav.com`
 - `TESLA_TELEMETRY_CA` containing the base64-encoded receiver certificate chain
 - `TESLA_TELEMETRY_INGEST_SECRET`, shared with the telemetry forwarder
@@ -99,12 +101,10 @@ Use this OAuth callback in Tesla's developer portal:
 https://app.teslanav.com/api/auth/tesla/callback
 ```
 
-Stripe must send these events to
-`https://app.teslanav.com/api/stripe/webhook`:
-
-- `customer.subscription.created`
-- `customer.subscription.updated`
-- `customer.subscription.deleted`
+Connect Autumn to Stripe in the Autumn dashboard. Configure a paid plan matching
+`NEXT_PUBLIC_AUTUMN_PLAN_ID` and include the feature identified by
+`AUTUMN_TESLA_ROUTE_FEATURE_ID`. Autumn owns checkout, subscription state, and
+Stripe webhook processing.
 
 ## 2. Deploy the Fleet Telemetry receiver
 
@@ -166,5 +166,7 @@ sudo docker compose -f docker-compose.exe-dev.yml pull
 sudo docker compose -f docker-compose.exe-dev.yml up -d --build
 ```
 
-Back up the Upstash database and Fleet API private key. Losing the private key
-requires every customer to pair a new virtual key.
+Back up the `teslanav-data` Docker volume, Upstash database, and Fleet API
+private key. The Docker volume contains Better Auth users, sessions, Tesla
+connections, and persistent car sessions. Losing the private key requires every
+customer to pair a new virtual key.

@@ -1,22 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { SubscriptionStatus, TeslaVehicle } from "@/types/tesla";
+import { useCustomer } from "autumn-js/react";
+import { authClient } from "@/lib/auth-client";
+import type { TeslaVehicle } from "@/types/tesla";
 
 interface AccountSummary {
-  email: string | null;
+  email: string;
+  name: string;
+  teslaConnected: boolean;
   vehicles: TeslaVehicle[];
   selectedVin: string | null;
-  subscriptionStatus: SubscriptionStatus;
   hasPaidAccess: boolean;
   telemetryConfiguredAt: string | null;
 }
 
 export function AccountDashboard() {
+  const session = authClient.useSession();
+  const { openCustomerPortal } = useCustomer();
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (session.isPending) return;
+    if (!session.data) {
+      setLoading(false);
+      return;
+    }
     fetch("/api/account", { cache: "no-store" })
       .then(async (response) => {
         if (response.ok) {
@@ -25,16 +35,14 @@ export function AccountDashboard() {
         }
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [session.data, session.isPending]);
 
   const openBilling = useCallback(async () => {
-    const response = await fetch("/api/billing/portal", { method: "POST" });
-    const data = (await response.json()) as { url?: string };
-    if (data.url) window.location.assign(data.url);
-  }, []);
+    await openCustomerPortal({ returnUrl: `${window.location.origin}/account` });
+  }, [openCustomerPortal]);
 
   const signOut = useCallback(async () => {
-    await fetch("/api/auth/session", { method: "DELETE" });
+    await authClient.signOut();
     window.location.assign("/");
   }, []);
 
@@ -43,15 +51,15 @@ export function AccountDashboard() {
       <section className="mx-auto w-full max-w-2xl rounded-3xl bg-white p-7 shadow-xl">
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-red-600">TeslaNav</p>
         <h1 className="mt-2 text-3xl font-semibold">Account</h1>
-        {loading && <p className="mt-6 text-gray-500">Loading account…</p>}
+        {(loading || session.isPending) && <p className="mt-6 text-gray-500">Loading account…</p>}
         {!loading && !account && (
-          <p className="mt-6 text-gray-600">Scan the QR code in your Tesla to sign in.</p>
+          <p className="mt-6 text-gray-600">Scan the QR code in your Tesla to create an account or sign in.</p>
         )}
         {account && (
           <div className="mt-7 space-y-5">
             <div className="rounded-2xl border border-gray-200 p-5">
               <p className="text-sm text-gray-500">Tesla account</p>
-              <p className="mt-1 font-semibold">{account.email ?? "Connected Tesla account"}</p>
+              <p className="mt-1 font-semibold">{account.email}</p>
             </div>
             <div className="rounded-2xl border border-gray-200 p-5">
               <p className="text-sm text-gray-500">Vehicle</p>
@@ -65,7 +73,9 @@ export function AccountDashboard() {
             </div>
             <div className="rounded-2xl border border-gray-200 p-5">
               <p className="text-sm text-gray-500">Subscription</p>
-              <p className="mt-1 font-semibold capitalize">{account.subscriptionStatus.replace("_", " ")}</p>
+              <p className="mt-1 font-semibold">
+                {account.hasPaidAccess ? "Tesla route overlay active" : "No active plan"}
+              </p>
               <p className="mt-1 text-sm text-gray-500">
                 {account.telemetryConfiguredAt ? "Route sharing configured" : "Vehicle setup incomplete"}
               </p>

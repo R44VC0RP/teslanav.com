@@ -1,41 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getPhoneAccount, hasPaidAccess } from "@/lib/tesla-auth";
+import { hasTeslaRouteAccess } from "@/lib/autumn";
+import { getAuthSession } from "@/lib/current-user";
 import {
+  getAccount,
   getLinkSession,
   saveAccount,
   saveLinkSession,
 } from "@/lib/tesla-store";
+import type { TeslaAccount } from "@/types/tesla";
 
 const updateSchema = z.object({
   selectedVin: z.string().min(5).max(32),
   linkId: z.string().optional(),
 });
 
-function publicAccount(account: NonNullable<Awaited<ReturnType<typeof getPhoneAccount>>>) {
+async function publicAccount(
+  user: { id: string; email: string; name: string },
+  account: TeslaAccount | null
+) {
   return {
-    id: account.id,
-    email: account.email,
-    vehicles: account.vehicles,
-    selectedVin: account.selectedVin,
-    subscriptionStatus: account.subscriptionStatus,
-    hasPaidAccess: hasPaidAccess(account),
-    telemetryConfiguredAt: account.telemetryConfiguredAt,
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    teslaConnected: account !== null,
+    vehicles: account?.vehicles ?? [],
+    selectedVin: account?.selectedVin ?? null,
+    hasPaidAccess: await hasTeslaRouteAccess(user.id),
+    telemetryConfiguredAt: account?.telemetryConfiguredAt ?? null,
   };
 }
 
 export async function GET(): Promise<NextResponse> {
-  const account = await getPhoneAccount();
-  if (!account) {
+  const session = await getAuthSession();
+  if (!session) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
-  return NextResponse.json({ authenticated: true, account: publicAccount(account) });
+  const account = await getAccount(session.user.id);
+  return NextResponse.json({
+    authenticated: true,
+    account: await publicAccount(session.user, account),
+  });
 }
 
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
-  const account = await getPhoneAccount();
-  if (!account) {
+  const session = await getAuthSession();
+  if (!session) {
     return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  }
+  const account = await getAccount(session.user.id);
+  if (!account) {
+    return NextResponse.json({ error: "Connect Tesla first" }, { status: 409 });
   }
   const parsed = updateSchema.safeParse(await request.json());
   if (!parsed.success) {
@@ -56,5 +71,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       await saveLinkSession(link);
     }
   }
-  return NextResponse.json({ account: publicAccount(account) });
+  return NextResponse.json({
+    account: await publicAccount(session.user, account),
+  });
 }
