@@ -132,6 +132,13 @@ bun run start        # Runs on port 3000
 
 Set `PORT` to override the default port. All environment variables must be available at runtime.
 
+For a production Docker deployment on exe.dev, use
+`docker-compose.exe-dev.yml` and follow
+[`docs/exe-dev-deployment.md`](./docs/exe-dev-deployment.md). Tesla's mTLS
+Fleet Telemetry receiver cannot run behind exe.dev's TLS-terminating edge; the
+repository includes `docker-compose.telemetry.yml` for deploying that receiver
+on a separate host with raw public TCP port 443.
+
 ### Notes for self-hosters
 
 - **Tile proxy**: Map tiles route through `/api/tiles` and are cached in Vercel Blob. If you are not on Vercel, you can skip `BLOB_READ_WRITE_TOKEN` — tiles will fall back to direct Mapbox requests without caching.

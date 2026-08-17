@@ -1,0 +1,58 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://app.teslanav.com}
+        NEXT_PUBLIC_MAPBOX_TOKEN: ${NEXT_PUBLIC_MAPBOX_TOKEN}
+        NEXT_PUBLIC_POSTHOG_KEY: ${NEXT_PUBLIC_POSTHOG_KEY:-}
+        NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.posthog.com}
+        NEXT_PUBLIC_PROJECT_SHUTDOWN: "false"
+    env_file:
+      - .env.production
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      NEXT_PUBLIC_PROJECT_SHUTDOWN: "false"
+      TESLA_COMMAND_PROXY_URL: https://vehicle-command:4443
+      TESLA_PUBLIC_KEY_FILE: /run/tesla/fleet-public-key.pem
+      NODE_EXTRA_CA_CERTS: /run/tesla/command-proxy-cert.pem
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./deploy/secrets/fleet-public-key.pem:/run/tesla/fleet-public-key.pem:ro
+      - ./deploy/secrets/command-proxy-cert.pem:/run/tesla/command-proxy-cert.pem:ro
+    depends_on:
+      vehicle-command:
+        condition: service_started
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  vehicle-command:
+    image: tesla/vehicle-command:latest
+    environment:
+      TESLA_HTTP_PROXY_TLS_CERT: /run/tesla/command-proxy-cert.pem
+      TESLA_HTTP_PROXY_TLS_KEY: /run/tesla/command-proxy-key.pem
+      TESLA_HTTP_PROXY_HOST: 0.0.0.0
+      TESLA_HTTP_PROXY_PORT: 4443
+      TESLA_HTTP_PROXY_TIMEOUT: 15s
+      TESLA_KEY_FILE: /run/tesla/fleet-private-key.pem
+      TESLA_CACHE_FILE: /var/cache/tesla/session-cache.json
+    expose:
+      - "4443"
+    volumes:
+      - ./deploy/secrets/fleet-private-key.pem:/run/tesla/fleet-private-key.pem:ro
+      - ./deploy/secrets/command-proxy-cert.pem:/run/tesla/command-proxy-cert.pem:ro
+      - ./deploy/secrets/command-proxy-key.pem:/run/tesla/command-proxy-key.pem:ro
+      - vehicle-command-cache:/var/cache/tesla
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  vehicle-command-cache:

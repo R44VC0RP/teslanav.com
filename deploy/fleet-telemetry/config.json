@@ -1,0 +1,32 @@
+{
+  "host": "0.0.0.0",
+  "port": 443,
+  "status_port": 8080,
+  "log_level": "info",
+  "json_log_enable": true,
+  "namespace": "tesla",
+  "reliable_ack": true,
+  "reliable_ack_sources": {
+    "V": "redis"
+  },
+  "transmit_decoded_records": true,
+  "rate_limit": {
+    "enabled": true,
+    "message_interval_time": 30,
+    "message_limit": 1000
+  },
+  "redis": {
+    "addrs": ["redis:6379"],
+    "publish_vin_topics": true
+  },
+  "records": {
+    "V": ["redis"],
+    "alerts": ["logger"],
+    "errors": ["logger"],
+    "connectivity": ["logger"]
+  },
+  "tls": {
+    "server_cert": "/run/tesla/telemetry-cert.pem",
+    "server_key": "/run/tesla/telemetry-key.pem"
+  }
+}
