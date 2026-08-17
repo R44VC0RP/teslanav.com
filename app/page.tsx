@@ -7,9 +7,11 @@ import { FeedbackModal } from "@/components/FeedbackModal";
 import { ChangelogModal } from "@/components/ChangelogModal";
 import { NavigateSearch } from "@/components/NavigateSearch";
 import { RouteSelector } from "@/components/RouteSelector";
+import { TeslaAccountControl } from "@/components/TeslaAccountControl";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
 import { useSpeedCameras } from "@/hooks/useSpeedCameras";
+import { useTeslaRoute } from "@/hooks/useTeslaRoute";
 import { PROJECT_SHUTDOWN_ENABLED, PROJECT_SHUTDOWN_MESSAGE } from "@/lib/shutdown";
 import type { MapBounds } from "@/types/waze";
 import type { RouteData, RoutesResponse } from "@/types/route";
@@ -172,6 +174,7 @@ function LiveHome() {
   const speed = isSimulating ? 25 : realSpeed;
   const { alerts, loading: alertsLoading, cachedTileBounds } = useWazeAlerts({ bounds });
   const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
+  const teslaNavigation = useTeslaRoute();
 
   // Track last route origin to detect significant movement
   const lastRouteOriginRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -941,8 +944,8 @@ function LiveHome() {
         onCenteredChange={handleCenteredChange}
         onLongPress={handleMapLongPress}
         pinLocation={contextMenu ? { lng: contextMenu.lng, lat: contextMenu.lat } : previewLocation ? { lng: previewLocation.lng, lat: previewLocation.lat } : null}
-        routes={routes}
-        selectedRouteIndex={selectedRouteIndex}
+        routes={teslaNavigation.route ? [teslaNavigation.route] : routes}
+        selectedRouteIndex={teslaNavigation.route ? 0 : selectedRouteIndex}
         userLocation={{ latitude, longitude, heading, effectiveHeading, speed }}
         followMode={followMode}
         showTraffic={showTraffic}
@@ -1062,6 +1065,32 @@ function LiveHome() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
           </button>
+        </div>
+      )}
+
+      <div className="absolute right-4 top-4 z-30">
+        <TeslaAccountControl isDarkMode={effectiveDarkMode} />
+      </div>
+
+      {teslaNavigation.details && teslaNavigation.route && (
+        <div
+          className={`absolute left-1/2 top-4 z-20 min-w-[280px] -translate-x-1/2 rounded-2xl border px-5 py-3 text-center shadow-lg backdrop-blur-xl ${
+            effectiveDarkMode
+              ? "border-white/10 bg-[#1a1a1a]/80 text-white"
+              : "border-black/10 bg-white/80 text-black"
+          }`}
+        >
+          <p className="truncate text-sm font-semibold">
+            {teslaNavigation.details.destinationName ?? "Tesla navigation"}
+          </p>
+          <p className={`mt-1 text-xs ${effectiveDarkMode ? "text-gray-300" : "text-gray-600"}`}>
+            {teslaNavigation.details.minutesToArrival !== null
+              ? `${Math.round(teslaNavigation.details.minutesToArrival)} min`
+              : "Route active"}
+            {teslaNavigation.details.milesToArrival !== null
+              ? ` · ${teslaNavigation.details.milesToArrival.toFixed(1)} mi`
+              : ""}
+          </p>
         </div>
       )}
 
