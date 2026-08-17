@@ -233,6 +233,47 @@ export async function configureFleetTelemetry(
   }
 }
 
+export async function getFleetTelemetryConnection(
+  account: TeslaAccount
+): Promise<{
+  account: TeslaAccount;
+  status: "connected" | "missing" | "unknown";
+}> {
+  const refreshed = await refreshTeslaAccount(account);
+  if (!refreshed.selectedVin) return { account: refreshed, status: "missing" };
+  try {
+    const response = await teslaFetch(
+      `/api/1/vehicles/${encodeURIComponent(refreshed.selectedVin)}/fleet_telemetry_config`,
+      decryptSecret(refreshed.accessToken)
+    );
+    if (response.status === 404) {
+      return { account: refreshed, status: "missing" };
+    }
+    if (!response.ok) {
+      return { account: refreshed, status: "unknown" };
+    }
+    const body = (await response.json()) as {
+      response?: {
+        synced?: boolean;
+        config?: { hostname?: string };
+      };
+    };
+    const expectedHostname = process.env.TESLA_TELEMETRY_HOSTNAME;
+    const hostname = body.response?.config?.hostname;
+    const hostnameMatches =
+      !expectedHostname || !hostname || hostname === expectedHostname;
+    return {
+      account: refreshed,
+      status:
+        body.response && body.response.synced !== false && hostnameMatches
+          ? "connected"
+          : "missing",
+    };
+  } catch {
+    return { account: refreshed, status: "unknown" };
+  }
+}
+
 export async function removeFleetTelemetry(
   account: TeslaAccount
 ): Promise<TeslaAccount> {

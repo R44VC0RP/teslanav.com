@@ -1094,6 +1094,12 @@ function LiveHome() {
         </div>
       )}
 
+      {teslaNavigation.linked && teslaNavigation.isOffline && (
+        <div className="absolute left-1/2 top-24 z-30 -translate-x-1/2 rounded-xl border border-amber-300/40 bg-amber-500/90 px-4 py-2 text-sm font-semibold text-black shadow-lg backdrop-blur-xl">
+          Offline — showing your last Tesla route while reconnecting
+        </div>
+      )}
+
       {/* Navigate Search + Destination Card (hidden - navigation in development) */}
       <div className="absolute top-16 left-4 z-30 flex flex-col gap-3 hidden">
         <NavigateSearch

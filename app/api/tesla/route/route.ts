@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { hasTeslaRouteAccess } from "@/lib/autumn";
-import { getCarSession } from "@/lib/tesla-auth";
+import { getCarSession, refreshCarSession } from "@/lib/tesla-auth";
 import { getTeslaRoute } from "@/lib/tesla-store";
 
 export async function GET(): Promise<NextResponse> {
@@ -14,6 +14,7 @@ export async function GET(): Promise<NextResponse> {
       { status: 402 }
     );
   }
+  await refreshCarSession(session);
   const route = await getTeslaRoute(session.selectedVin);
   return NextResponse.json(
     {

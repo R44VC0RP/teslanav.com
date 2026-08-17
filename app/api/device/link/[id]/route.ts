@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasTeslaRouteAccess } from "@/lib/autumn";
-import { createCarSession, hashToken } from "@/lib/tesla-auth";
+import {
+  clearPendingLinkCookie,
+  createCarSession,
+  hashToken,
+} from "@/lib/tesla-auth";
 import { getLinkSession } from "@/lib/tesla-store";
 
 interface RouteContext {
@@ -27,6 +31,7 @@ export async function GET(
       return NextResponse.json({ status: "subscribed" });
     }
     await createCarSession(link.accountId, link.selectedVin);
+    await clearPendingLinkCookie();
     return NextResponse.json({
       status: "complete",
       selectedVin: link.selectedVin,

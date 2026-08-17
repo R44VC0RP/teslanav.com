@@ -30,13 +30,20 @@ export function ConnectFlow() {
   const [actionLoading, setActionLoading] = useState(false);
   const [pairingUrl, setPairingUrl] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [reconnectState, setReconnectState] = useState<
+    "checking" | "needs-pairing" | "complete" | "retry" | null
+  >(null);
+  const [linkClaimed, setLinkClaimed] = useState(false);
   const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const loadAccount = useCallback(async () => {
-    const response = await fetch("/api/account", { cache: "no-store" });
+  const loadAccount = useCallback(async (forceBillingRefresh: boolean = false) => {
+    const response = await fetch(
+      forceBillingRefresh ? "/api/account?refreshBilling=true" : "/api/account",
+      { cache: "no-store" }
+    );
     if (response.ok) {
       const data = (await response.json()) as { account: AccountSummary };
       setAccount(data.account);
@@ -49,7 +56,7 @@ export function ConnectFlow() {
     if (!session.data) return;
     const initialLoad = window.setTimeout(() => void loadAccount(), 0);
     if (checkout === "success") {
-      const timer = window.setInterval(() => void loadAccount(), 2000);
+      const timer = window.setInterval(() => void loadAccount(true), 2000);
       const timeout = window.setTimeout(() => window.clearInterval(timer), 15000);
       return () => {
         window.clearTimeout(initialLoad);
@@ -70,6 +77,59 @@ export function ConnectFlow() {
       })
       .catch(() => undefined);
   }, [account?.hasPaidAccess]);
+
+  useEffect(() => {
+    if (!session.data || !account || !linkId || linkClaimed) return;
+    if (!phoneToken) {
+      const timer = window.setTimeout(() => setLinkClaimed(true), 0);
+      return () => window.clearTimeout(timer);
+    }
+    const timer = window.setTimeout(() => {
+      fetch("/api/device/link/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId, phoneToken }),
+      })
+        .then((response) => {
+          if (response.ok) setLinkClaimed(true);
+          else setMessage("This reconnect code expired. Generate a new QR code in the car.");
+        })
+        .catch(() => setMessage("TeslaNav is offline. Try reconnecting in a moment."));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [account, linkClaimed, linkId, phoneToken, session.data]);
+
+  const tryReconnect = useCallback(async () => {
+    if (!linkId) return;
+    setReconnectState("checking");
+    const response = await fetch("/api/device/reconnect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ linkId }),
+    });
+    const data = (await response.json()) as {
+      complete?: boolean;
+      needsPairing?: boolean;
+      retryable?: boolean;
+    };
+    if (data.complete) setReconnectState("complete");
+    else if (data.needsPairing) setReconnectState("needs-pairing");
+    else setReconnectState("retry");
+  }, [linkId]);
+
+  useEffect(() => {
+    if (
+      !account?.teslaConnected ||
+      !account.selectedVin ||
+      !account.hasPaidAccess ||
+      !linkClaimed ||
+      reconnectState !== null
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(() => void tryReconnect(), 0);
+    return () => window.clearTimeout(timer);
+  }, [account, linkClaimed, reconnectState, tryReconnect]);
 
   const selectVehicle = useCallback(
     async (selectedVin: string) => {
@@ -93,7 +153,7 @@ export function ConnectFlow() {
         planId: process.env.NEXT_PUBLIC_AUTUMN_PLAN_ID ?? "tesla_nav_pro",
         successUrl: `${window.location.origin}/connect?link=${encodeURIComponent(linkId)}&checkout=success`,
       });
-      await loadAccount();
+      await loadAccount(true);
     } catch {
       setMessage("Checkout could not be started");
     }
@@ -127,6 +187,7 @@ export function ConnectFlow() {
     const data = (await response.json()) as { complete?: boolean; error?: string };
     if (data.complete) {
       setMessage("Connected. TeslaNav is ready in your car.");
+      setReconnectState("complete");
       await loadAccount();
     } else {
       setMessage(data.error ?? "We could not verify the vehicle key yet.");
@@ -236,6 +297,41 @@ export function ConnectFlow() {
         {message && <Notice>{message}</Notice>}
         <button type="button" disabled={actionLoading} onClick={() => void startCheckout()} className="min-h-12 w-full rounded-xl bg-red-600 px-5 py-3 font-semibold text-white disabled:opacity-50">
           {actionLoading ? "Opening checkout…" : "Start free trial"}
+        </button>
+      </ConnectCard>
+    );
+  }
+
+  if (reconnectState === "checking" || reconnectState === null) {
+    return (
+      <ConnectCard title="Reconnecting your Tesla">
+        <p className="text-gray-600">
+          Checking the existing vehicle key and route connection…
+        </p>
+      </ConnectCard>
+    );
+  }
+
+  if (reconnectState === "complete") {
+    return (
+      <ConnectCard title="Tesla reconnected">
+        <p className="rounded-2xl bg-green-50 p-5 text-green-800">
+          Your existing subscription, vehicle key, and route connection are ready.
+          Return to the car—no additional setup is needed.
+        </p>
+      </ConnectCard>
+    );
+  }
+
+  if (reconnectState === "retry") {
+    return (
+      <ConnectCard title="Connection temporarily unavailable">
+        <p className="mb-5 text-gray-600">
+          Your account is still linked. TeslaNav could not verify the vehicle connection
+          right now.
+        </p>
+        <button type="button" onClick={() => void tryReconnect()} className="min-h-12 w-full rounded-xl bg-gray-950 px-5 py-3 font-semibold text-white">
+          Try again
         </button>
       </ConnectCard>
     );

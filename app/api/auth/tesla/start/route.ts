@@ -3,7 +3,7 @@ import { getAuthSession } from "@/lib/current-user";
 import { database } from "@/lib/database";
 import { buildTeslaAuthorizeUrl } from "@/lib/tesla-api";
 import { hashToken, randomToken } from "@/lib/tesla-auth";
-import { getLinkSession } from "@/lib/tesla-store";
+import { getLinkSession, saveLinkSession } from "@/lib/tesla-store";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -20,6 +20,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!link || hashToken(phoneToken) !== link.phoneTokenHash) {
       return NextResponse.json({ error: "Link session expired" }, { status: 404 });
     }
+    link.accountId = session.user.id;
+    link.expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    await saveLinkSession(link);
 
     const state = randomToken();
     const nonce = randomToken();

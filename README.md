@@ -201,6 +201,12 @@ server-side against the Autumn feature configured by
 `AUTUMN_TESLA_ROUTE_FEATURE_ID`; TeslaNav does not process billing webhooks
 directly.
 
+Car sessions use sliding one-year expiration in SQLite. Temporary outages keep
+the last route visible and retry with exponential backoff. If the Tesla browser
+loses its cookie, the reconnect QR reuses the phone account, cached Autumn
+entitlement, paired virtual key, and existing telemetry configuration instead
+of repeating checkout and pairing.
+
 ## Contributing
 
 Pull requests are welcome. Please run `bun run lint` and `bunx tsc --noEmit` before submitting. There is no automated test suite — validate changes manually in the browser, ideally in a Tesla browser or a Chromium-based mobile browser in touch emulation mode.

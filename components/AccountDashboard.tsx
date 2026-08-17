@@ -19,16 +19,26 @@ export function AccountDashboard() {
   const session = authClient.useSession();
   const { openCustomerPortal } = useCustomer();
   const [account, setAccount] = useState<AccountSummary | null>(null);
+  const [carSessionCount, setCarSessionCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (session.isPending) return;
     if (!session.data) return;
-    fetch("/api/account", { cache: "no-store" })
-      .then(async (response) => {
-        if (response.ok) {
-          const data = (await response.json()) as { account: AccountSummary };
+    Promise.all([
+      fetch("/api/account", { cache: "no-store" }),
+      fetch("/api/device/sessions", { cache: "no-store" }),
+    ])
+      .then(async ([accountResponse, sessionsResponse]) => {
+        if (accountResponse.ok) {
+          const data = (await accountResponse.json()) as { account: AccountSummary };
           setAccount(data.account);
+        }
+        if (sessionsResponse.ok) {
+          const data = (await sessionsResponse.json()) as {
+            sessions: Array<{ id: string }>;
+          };
+          setCarSessionCount(data.sessions.length);
         }
       })
       .finally(() => setLoading(false));
@@ -41,6 +51,12 @@ export function AccountDashboard() {
   const signOut = useCallback(async () => {
     await authClient.signOut();
     window.location.assign("/");
+  }, []);
+
+  const revokeCarSessions = useCallback(async () => {
+    if (!window.confirm("Sign out every linked Tesla browser?")) return;
+    const response = await fetch("/api/device/sessions", { method: "DELETE" });
+    if (response.ok) setCarSessionCount(0);
   }, []);
 
   return (
@@ -60,6 +76,23 @@ export function AccountDashboard() {
             <div className="rounded-2xl border border-gray-200 p-5">
               <p className="text-sm text-gray-500">Tesla account</p>
               <p className="mt-1 font-semibold">{account.email}</p>
+            </div>
+            <div className="rounded-2xl border border-gray-200 p-5">
+              <p className="text-sm text-gray-500">Linked car browsers</p>
+              <p className="mt-1 font-semibold">
+                {carSessionCount === 1
+                  ? "1 active browser"
+                  : `${carSessionCount} active browsers`}
+              </p>
+              {carSessionCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void revokeCarSessions()}
+                  className="mt-3 min-h-11 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700"
+                >
+                  Sign out all car browsers
+                </button>
+              )}
             </div>
             <div className="rounded-2xl border border-gray-200 p-5">
               <p className="text-sm text-gray-500">Vehicle</p>

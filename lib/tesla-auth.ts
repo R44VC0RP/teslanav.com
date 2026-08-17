@@ -4,7 +4,15 @@ import { database } from "@/lib/database";
 import type { DeviceSession } from "@/types/tesla";
 
 const CAR_COOKIE = "teslanav_car";
+const PENDING_LINK_COOKIE = "teslanav_pending_link";
 const CAR_SESSION_TTL = 60 * 60 * 24 * 365;
+const PENDING_LINK_TTL = 60 * 30;
+
+export interface PendingLinkCookie {
+  id: string;
+  carToken: string;
+  phoneToken: string;
+}
 
 function secret(): Buffer {
   const value = process.env.TESLANAV_SESSION_SECRET;
@@ -110,6 +118,72 @@ export async function getCarSession(): Promise<DeviceSession | null> {
         expiresAt: row.expires_at,
       }
     : null;
+}
+
+export async function refreshCarSession(
+  session: DeviceSession
+): Promise<DeviceSession> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(CAR_COOKIE)?.value;
+  if (!token) return session;
+  const currentExpiry = new Date(session.expiresAt).getTime();
+  if (currentExpiry - Date.now() > (CAR_SESSION_TTL * 1000) / 2) return session;
+
+  const expiresAt = new Date(
+    Date.now() + CAR_SESSION_TTL * 1000
+  ).toISOString();
+  database
+    .prepare("UPDATE car_session SET expires_at = ? WHERE token_hash = ?")
+    .run(expiresAt, hashToken(token));
+  cookieStore.set(CAR_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: CAR_SESSION_TTL,
+  });
+  return { ...session, expiresAt };
+}
+
+export async function setPendingLinkCookie(
+  pendingLink: PendingLinkCookie
+): Promise<void> {
+  (await cookies()).set(
+    PENDING_LINK_COOKIE,
+    Buffer.from(JSON.stringify(pendingLink)).toString("base64url"),
+    {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: PENDING_LINK_TTL,
+    }
+  );
+}
+
+export async function getPendingLinkCookie(): Promise<PendingLinkCookie | null> {
+  const value = (await cookies()).get(PENDING_LINK_COOKIE)?.value;
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8")
+    ) as Partial<PendingLinkCookie>;
+    return typeof parsed.id === "string" &&
+      typeof parsed.carToken === "string" &&
+      typeof parsed.phoneToken === "string"
+      ? {
+          id: parsed.id,
+          carToken: parsed.carToken,
+          phoneToken: parsed.phoneToken,
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPendingLinkCookie(): Promise<void> {
+  (await cookies()).delete(PENDING_LINK_COOKIE);
 }
 
 export async function clearCarSession(): Promise<void> {

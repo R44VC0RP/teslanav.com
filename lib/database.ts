@@ -67,4 +67,21 @@ database.exec(`
 
   CREATE INDEX IF NOT EXISTS car_session_expires_at_idx
     ON car_session(expires_at);
+
+  CREATE INDEX IF NOT EXISTS car_session_user_id_idx
+    ON car_session(user_id);
+
+  CREATE TABLE IF NOT EXISTS billing_entitlement (
+    user_id TEXT NOT NULL,
+    feature_id TEXT NOT NULL,
+    allowed INTEGER NOT NULL,
+    checked_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, feature_id),
+    FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+  );
 `);
+
+const now = new Date().toISOString();
+database.prepare("DELETE FROM device_link WHERE expires_at <= ?").run(now);
+database.prepare("DELETE FROM tesla_oauth_state WHERE expires_at <= ?").run(now);
+database.prepare("DELETE FROM car_session WHERE expires_at <= ?").run(now);

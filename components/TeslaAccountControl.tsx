@@ -21,37 +21,58 @@ export function TeslaAccountControl({ isDarkMode }: TeslaAccountControlProps) {
   const [link, setLink] = useState<LinkDetails | null>(null);
   const [status, setStatus] = useState("pending");
   const [error, setError] = useState<string | null>(null);
+  const [connectionOffline, setConnectionOffline] = useState(false);
+  const [isTeslaBrowser] = useState(() => {
+    if (typeof navigator === "undefined") return false;
+    const userAgent = navigator.userAgent.toLowerCase();
+    return userAgent.includes("tesla") || userAgent.includes("qtcarbrowser");
+  });
+
+  const beginLinking = useCallback(async () => {
+    setError(null);
+    setOpen(true);
+    try {
+      const response = await fetch("/api/device/link", { method: "POST" });
+      const data = (await response.json()) as
+        | ({ linked: true; selectedVin: string })
+        | ({ linked: false } & LinkDetails)
+        | { error: string };
+      if ("error" in data) {
+        setError(data.error);
+        return;
+      }
+      if (data.linked) {
+        setLinked(true);
+        setStatus("complete");
+        return;
+      }
+      setLink(data);
+      setStatus("pending");
+    } catch {
+      setConnectionOffline(true);
+      setError("TeslaNav is offline. Reconnect to the internet and try again.");
+    }
+  }, []);
 
   const checkExisting = useCallback(async () => {
-    const response = await fetch("/api/tesla/route", { cache: "no-store" });
-    setLinked(response.status !== 401);
-  }, []);
+    try {
+      const response = await fetch("/api/tesla/route", { cache: "no-store" });
+      setConnectionOffline(response.status >= 500);
+      if (response.status === 401) {
+        setLinked(false);
+        if (isTeslaBrowser) await beginLinking();
+      } else if (response.ok || response.status === 402) {
+        setLinked(true);
+      }
+    } catch {
+      setConnectionOffline(true);
+    }
+  }, [beginLinking, isTeslaBrowser]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void checkExisting(), 0);
     return () => window.clearTimeout(timer);
   }, [checkExisting]);
-
-  const beginLinking = useCallback(async () => {
-    setError(null);
-    setOpen(true);
-    const response = await fetch("/api/device/link", { method: "POST" });
-    const data = (await response.json()) as
-      | ({ linked: true; selectedVin: string })
-      | ({ linked: false } & LinkDetails)
-      | { error: string };
-    if ("error" in data) {
-      setError(data.error);
-      return;
-    }
-    if (data.linked) {
-      setLinked(true);
-      setStatus("complete");
-      return;
-    }
-    setLink(data);
-    setStatus("pending");
-  }, []);
 
   useEffect(() => {
     if (!link || status === "complete") return;
@@ -89,7 +110,11 @@ export function TeslaAccountControl({ isDarkMode }: TeslaAccountControlProps) {
               : "border-black/10 bg-white/70 text-black"
         }`}
       >
-        {linked ? "Tesla connected" : "Connect Tesla"}
+        {connectionOffline
+          ? "Reconnecting…"
+          : linked
+            ? "Tesla connected"
+            : "Connect Tesla"}
       </button>
 
       {open && (

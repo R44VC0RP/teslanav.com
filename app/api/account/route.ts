@@ -17,7 +17,8 @@ const updateSchema = z.object({
 
 async function publicAccount(
   user: { id: string; email: string; name: string },
-  account: TeslaAccount | null
+  account: TeslaAccount | null,
+  forceBillingRefresh: boolean = false
 ) {
   return {
     id: user.id,
@@ -26,12 +27,12 @@ async function publicAccount(
     teslaConnected: account !== null,
     vehicles: account?.vehicles ?? [],
     selectedVin: account?.selectedVin ?? null,
-    hasPaidAccess: await hasTeslaRouteAccess(user.id),
+    hasPaidAccess: await hasTeslaRouteAccess(user.id, forceBillingRefresh),
     telemetryConfiguredAt: account?.telemetryConfiguredAt ?? null,
   };
 }
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   const session = await getAuthSession();
   if (!session) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
@@ -39,7 +40,11 @@ export async function GET(): Promise<NextResponse> {
   const account = await getAccount(session.user.id);
   return NextResponse.json({
     authenticated: true,
-    account: await publicAccount(session.user, account),
+    account: await publicAccount(
+      session.user,
+      account,
+      request.nextUrl.searchParams.get("refreshBilling") === "true"
+    ),
   });
 }
 

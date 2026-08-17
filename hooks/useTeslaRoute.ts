@@ -9,6 +9,8 @@ interface TeslaRouteState {
   subscribed: boolean;
   route: RouteData | null;
   details: TeslaRoute | null;
+  isOffline: boolean;
+  lastSuccessfulAt: string | null;
 }
 
 const INITIAL_STATE: TeslaRouteState = {
@@ -16,6 +18,8 @@ const INITIAL_STATE: TeslaRouteState = {
   subscribed: false,
   route: null,
   details: null,
+  isOffline: false,
+  lastSuccessfulAt: null,
 };
 
 export function useTeslaRoute(): TeslaRouteState {
@@ -23,20 +27,25 @@ export function useTeslaRoute(): TeslaRouteState {
 
   useEffect(() => {
     let active = true;
-    const load = async () => {
+    let timer: number | null = null;
+    let retryDelay = 10_000;
+    const load = async (): Promise<boolean> => {
       try {
         const response = await fetch("/api/tesla/route", { cache: "no-store" });
+        if (response.status >= 500) throw new Error("Route service unavailable");
         const data = (await response.json()) as {
           linked?: boolean;
           subscribed?: boolean;
           route?: TeslaRoute | null;
         };
-        if (!active) return;
+        if (!active) return true;
         const teslaRoute = data.route ?? null;
         setState({
           linked: data.linked ?? false,
           subscribed: data.subscribed ?? false,
           details: teslaRoute,
+          isOffline: false,
+          lastSuccessfulAt: new Date().toISOString(),
           route:
             teslaRoute && teslaRoute.coordinates.length >= 2
               ? {
@@ -53,15 +62,24 @@ export function useTeslaRoute(): TeslaRouteState {
                 }
               : null,
         });
+        return true;
       } catch {
-        // Keep the last route during temporary connectivity loss.
+        if (active) {
+          setState((previous) => ({ ...previous, isOffline: true }));
+        }
+        return false;
       }
     };
-    void load();
-    const timer = window.setInterval(() => void load(), 10_000);
+
+    const poll = async () => {
+      const succeeded = await load();
+      retryDelay = succeeded ? 10_000 : Math.min(retryDelay * 2, 60_000);
+      if (active) timer = window.setTimeout(() => void poll(), retryDelay);
+    };
+    void poll();
     return () => {
       active = false;
-      window.clearInterval(timer);
+      if (timer !== null) window.clearTimeout(timer);
     };
   }, []);
 
