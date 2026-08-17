@@ -105,9 +105,7 @@ async function main(): Promise<void> {
   console.log("[TelemetryForwarder] subscribed to Tesla navigation records");
 }
 
-if (import.meta.main) {
-  main().catch((error) => {
-    console.error("[TelemetryForwarder] fatal:", error);
-    process.exit(1);
-  });
-}
+main().catch((error) => {
+  console.error("[TelemetryForwarder] fatal:", error);
+  process.exit(1);
+});

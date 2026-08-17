@@ -10,7 +10,8 @@ services:
         NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-https://us.posthog.com}
         NEXT_PUBLIC_PROJECT_SHUTDOWN: "false"
     env_file:
-      - .env.production
+      - path: .env.production
+        required: false
     environment:
       HOSTNAME: 0.0.0.0
       PORT: 3000
