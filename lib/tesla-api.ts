@@ -233,6 +233,28 @@ export async function configureFleetTelemetry(
   }
 }
 
+export async function removeFleetTelemetry(
+  account: TeslaAccount
+): Promise<TeslaAccount> {
+  if (!account.selectedVin || !process.env.TESLA_COMMAND_PROXY_URL) return account;
+  const refreshed = await refreshTeslaAccount(account);
+  const response = await fetch(
+    `${process.env.TESLA_COMMAND_PROXY_URL.replace(/\/$/, "")}/api/1/vehicles/${encodeURIComponent(account.selectedVin)}/fleet_telemetry_config`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${decryptSecret(refreshed.accessToken)}`,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+    }
+  );
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`Telemetry removal failed (${response.status})`);
+  }
+  return refreshed;
+}
+
 export function virtualKeyPairingUrl(vin: string): string {
   const domain = process.env.TESLA_PARTNER_DOMAIN ?? "teslanav.com";
   return `https://tesla.com/_ak/${domain}?vin=${encodeURIComponent(vin)}`;

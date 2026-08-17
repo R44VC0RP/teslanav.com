@@ -36,15 +36,17 @@ export function ConnectFlow() {
   }, []);
 
   useEffect(() => {
-    void loadAccount();
+    const initialLoad = window.setTimeout(() => void loadAccount(), 0);
     if (checkout === "success") {
       const timer = window.setInterval(() => void loadAccount(), 2000);
       const timeout = window.setTimeout(() => window.clearInterval(timer), 15000);
       return () => {
+        window.clearTimeout(initialLoad);
         window.clearInterval(timer);
         window.clearTimeout(timeout);
       };
     }
+    return () => window.clearTimeout(initialLoad);
   }, [checkout, loadAccount]);
 
   useEffect(() => {

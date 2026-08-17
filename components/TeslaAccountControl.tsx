@@ -28,7 +28,8 @@ export function TeslaAccountControl({ isDarkMode }: TeslaAccountControlProps) {
   }, []);
 
   useEffect(() => {
-    void checkExisting();
+    const timer = window.setTimeout(() => void checkExisting(), 0);
+    return () => window.clearTimeout(timer);
   }, [checkExisting]);
 
   const beginLinking = useCallback(async () => {

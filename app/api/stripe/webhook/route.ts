@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
+import { removeFleetTelemetry } from "@/lib/tesla-api";
 import {
   findAccountByStripeCustomer,
   getAccount,
@@ -52,7 +53,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         account.stripeSubscriptionId = subscription.id;
         account.subscriptionStatus = subscriptionStatus(subscription.status);
         account.updatedAt = new Date().toISOString();
-        await saveAccount(account);
+        if (
+          account.subscriptionStatus === "canceled" ||
+          account.subscriptionStatus === "inactive"
+        ) {
+          try {
+            const refreshed = await removeFleetTelemetry(account);
+            refreshed.telemetryConfiguredAt = null;
+            await saveAccount(refreshed);
+          } catch (error) {
+            console.error("[StripeWebhook] telemetry cleanup failed:", error);
+            await saveAccount(account);
+          }
+        } else {
+          await saveAccount(account);
+        }
 
         const linkId = subscription.metadata.linkId;
         if (linkId) {
