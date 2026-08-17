@@ -23,10 +23,7 @@ export function AccountDashboard() {
 
   useEffect(() => {
     if (session.isPending) return;
-    if (!session.data) {
-      setLoading(false);
-      return;
-    }
+    if (!session.data) return;
     fetch("/api/account", { cache: "no-store" })
       .then(async (response) => {
         if (response.ok) {
@@ -51,9 +48,12 @@ export function AccountDashboard() {
       <section className="mx-auto w-full max-w-2xl rounded-3xl bg-white p-7 shadow-xl">
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-red-600">TeslaNav</p>
         <h1 className="mt-2 text-3xl font-semibold">Account</h1>
-        {(loading || session.isPending) && <p className="mt-6 text-gray-500">Loading account…</p>}
-        {!loading && !account && (
-          <p className="mt-6 text-gray-600">Scan the QR code in your Tesla to create an account or sign in.</p>
+        {(session.isPending || (session.data && loading)) && <p className="mt-6 text-gray-500">Loading account…</p>}
+        {!session.isPending && !account && (
+          <p className="mt-6 text-gray-600">
+            Open TeslaNav in your car, choose <span className="font-semibold">Connect Tesla</span>,
+            then scan the QR code displayed on the car&apos;s screen.
+          </p>
         )}
         {account && (
           <div className="mt-7 space-y-5">

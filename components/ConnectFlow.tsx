@@ -46,10 +46,7 @@ export function ConnectFlow() {
 
   useEffect(() => {
     if (session.isPending) return;
-    if (!session.data) {
-      setLoading(false);
-      return;
-    }
+    if (!session.data) return;
     const initialLoad = window.setTimeout(() => void loadAccount(), 0);
     if (checkout === "success") {
       const timer = window.setInterval(() => void loadAccount(), 2000);
@@ -141,7 +138,7 @@ export function ConnectFlow() {
     return <ConnectCard title="Open TeslaNav in your car">Scan the QR code shown in the Tesla browser to connect it.</ConnectCard>;
   }
 
-  if (loading || session.isPending) {
+  if (session.isPending || (session.data && loading)) {
     return <ConnectCard title="Loading">Checking your TeslaNav account…</ConnectCard>;
   }
 
