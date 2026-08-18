@@ -1,5 +1,8 @@
 # Deploying TeslaNav with Docker on exe.dev
 
+Complete Tesla developer application and Fleet API registration using
+[`tesla-fleet-api-setup.md`](./tesla-fleet-api-setup.md).
+
 ## Required topology
 
 exe.dev works well for the TeslaNav web application and the private Tesla

@@ -57,6 +57,19 @@ function config(): {
   };
 }
 
+function telemetryCertificateChain(): string | null {
+  const configured = process.env.TESLA_TELEMETRY_CA;
+  if (!configured) return null;
+  const normalized = configured.replace(/\\n/g, "\n");
+  if (normalized.includes("-----BEGIN CERTIFICATE-----")) return normalized;
+  try {
+    const decoded = Buffer.from(configured, "base64").toString("utf8");
+    return decoded.includes("-----BEGIN CERTIFICATE-----") ? decoded : normalized;
+  } catch {
+    return normalized;
+  }
+}
+
 function jwtSubject(token: string | undefined, fallback: string): string {
   if (!token) return fallback;
   try {
@@ -201,7 +214,7 @@ export async function configureFleetTelemetry(
         config: {
           hostname,
           port: 443,
-          ca: process.env.TESLA_TELEMETRY_CA ?? null,
+          ca: telemetryCertificateChain(),
           exp: Math.floor(Date.now() / 1000) + 350 * 24 * 60 * 60,
           fields: {
             RouteLine: {

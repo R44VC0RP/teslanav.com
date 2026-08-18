@@ -136,6 +136,10 @@ on a separate host with raw public TCP port 443. For EC2, use
 `deploy/telemetry/deploy.sh` to install and deploy the complete telemetry stack
 over SSH.
 
+Follow [`docs/tesla-fleet-api-setup.md`](./docs/tesla-fleet-api-setup.md) for
+Tesla developer application creation, partner registration, OAuth scopes,
+virtual-key pairing, certificate validation, and end-to-end testing.
+
 ### Notes for self-hosters
 
 - **Tile proxy**: Map tiles route through `/api/tiles` and are cached in Vercel Blob. If you are not on Vercel, you can skip `BLOB_READ_WRITE_TOKEN` — tiles will fall back to direct Mapbox requests without caching.
