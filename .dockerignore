@@ -1,0 +1,15 @@
+.git
+.github
+.next
+node_modules
+.env
+.env.*
+!.env.example
+deploy/secrets
+data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+coverage
+*.log
+*.tsbuildinfo

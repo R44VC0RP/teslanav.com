@@ -15,6 +15,7 @@ A navigation web app optimized for Tesla's in-car browser. Built with Next.js 16
 - GPS track recording and playback (GPX export)
 - Offline tile caching via service worker
 - Touch-optimized UI designed for Tesla's in-car Chromium browser
+- Optional Tesla Fleet Telemetry route overlay with QR-based device linking
 
 ## Development
 
@@ -91,21 +92,33 @@ INBOUND_API_KEY=...
 
 # Admin dashboard — protects /api/admin/* routes
 ADMIN_API_KEY=your-secret-key
+
+# Better Auth, Autumn billing, Tesla Fleet API, and telemetry
+# See .env.example for the complete production configuration.
+TESLANAV_SESSION_SECRET=a-random-secret-with-at-least-32-characters
+NEXT_PUBLIC_APP_URL=https://app.teslanav.com
+BETTER_AUTH_SECRET=another-random-secret
+BETTER_AUTH_URL=https://app.teslanav.com
+TESLANAV_DATABASE_PATH=./data/teslanav.sqlite
+AUTUMN_SECRET_KEY=
+AUTUMN_TESLA_ROUTE_FEATURE_ID=tesla_route
+NEXT_PUBLIC_AUTUMN_PLAN_ID=tesla_nav_pro
+TESLA_CLIENT_ID=
+TESLA_CLIENT_SECRET=
+TESLA_REDIRECT_URI=https://app.teslanav.com/api/auth/tesla/callback
+TESLA_PARTNER_DOMAIN=teslanav.com
+TESLA_PUBLIC_KEY_PEM=
+TESLA_COMMAND_PROXY_URL=
+TESLA_TELEMETRY_HOSTNAME=telemetry.teslanav.com
+TESLA_TELEMETRY_CA=
+TESLA_TELEMETRY_INGEST_SECRET=
 ```
 
 Only `NEXT_PUBLIC_MAPBOX_TOKEN` is strictly required to run the map. Other services degrade gracefully when keys are absent (search, alerts, and recording will not function).
 
 ## Self-Hosting
 
-### Vercel (recommended)
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/your-username/teslanav.com)
-
-1. Click **Deploy** and connect your GitHub repository
-2. Add all required environment variables in the Vercel dashboard
-3. Enable **Vercel Blob** storage in the Storage tab of your project
-
-### Docker / Node
+### Docker on exe.dev
 
 ```bash
 bun run build
@@ -113,6 +126,19 @@ bun run start        # Runs on port 3000
 ```
 
 Set `PORT` to override the default port. All environment variables must be available at runtime.
+
+For a production Docker deployment on exe.dev, use
+`docker-compose.exe-dev.yml` and follow
+[`docs/exe-dev-deployment.md`](./docs/exe-dev-deployment.md). Tesla's mTLS
+Fleet Telemetry receiver cannot run behind exe.dev's TLS-terminating edge; the
+repository includes `docker-compose.telemetry.yml` for deploying that receiver
+on a separate host with raw public TCP port 443. For EC2, use
+`deploy/telemetry/deploy.sh` to install and deploy the complete telemetry stack
+over SSH.
+
+Follow [`docs/tesla-fleet-api-setup.md`](./docs/tesla-fleet-api-setup.md) for
+Tesla developer application creation, partner registration, OAuth scopes,
+virtual-key pairing, certificate validation, and end-to-end testing.
 
 ### Notes for self-hosters
 
@@ -141,6 +167,49 @@ public/sw.js       # Service worker — offline tile cache
 ```
 
 All external API calls go through server-side route handlers to keep API keys off the client. Results are cached in Redis (60 s – 24 h depending on data type) to minimize upstream usage.
+
+### Tesla account and route integration
+
+The Tesla browser creates a ten-minute, single-use linking session and displays
+a QR code. On the phone, Better Auth manages the TeslaNav account, Tesla OAuth
+connects the vehicle, and Autumn manages plan checkout and access. SQLite is
+stored on the persistent Docker volume. Once linked, the browser receives a
+one-year, HTTP-only device session cookie; users do not enter credentials in
+the vehicle.
+
+Tesla Fleet Telemetry requires a separate public receiver that accepts the
+vehicle's mTLS WebSocket connection on port 443. The receiver should normalize
+navigation updates and forward them to:
+
+```http
+POST /api/telemetry/ingest
+Authorization: Bearer $TESLA_TELEMETRY_INGEST_SECRET
+Content-Type: application/json
+
+{
+  "vin": "VIN",
+  "fields": {
+    "RouteLine": "base64...",
+    "DestinationName": "Destination",
+    "DestinationLocation": { "latitude": 0, "longitude": 0 },
+    "MilesToArrival": 12.3,
+    "MinutesToArrival": 18,
+    "RouteTrafficMinutesDelay": 4
+  }
+}
+```
+
+`RouteLine` is decoded server-side and retained for 12 hours. The car polls the
+authenticated route endpoint every ten seconds. Route access is checked
+server-side against the Autumn feature configured by
+`AUTUMN_TESLA_ROUTE_FEATURE_ID`; TeslaNav does not process billing webhooks
+directly.
+
+Car sessions use sliding one-year expiration in SQLite. Temporary outages keep
+the last route visible and retry with exponential backoff. If the Tesla browser
+loses its cookie, the reconnect QR reuses the phone account, cached Autumn
+entitlement, paired virtual key, and existing telemetry configuration instead
+of repeating checkout and pairing.
 
 ## Contributing
 

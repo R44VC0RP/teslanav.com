@@ -5,7 +5,7 @@ const isProjectShutdown =
   !shutdownRaw || !["0", "false", "off", "no"].includes(shutdownRaw.trim().toLowerCase());
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: "standalone",
   async rewrites() {
     if (isProjectShutdown) {
       return [];

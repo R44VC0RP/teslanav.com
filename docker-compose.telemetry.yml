@@ -1,0 +1,62 @@
+services:
+  fleet-telemetry:
+    image: tesla/fleet-telemetry:latest
+    command:
+      - /fleet-telemetry
+      - -config=/etc/fleet-telemetry/config.json
+    environment:
+      REDIS_PASSWORD: ${TELEMETRY_REDIS_PASSWORD}
+      SUPPRESS_TLS_HANDSHAKE_ERROR_LOGGING: "true"
+    ports:
+      - "443:443"
+    volumes:
+      - ./deploy/fleet-telemetry/config.json:/etc/fleet-telemetry/config.json:ro
+      - ./deploy/secrets/telemetry-cert.pem:/run/tesla/telemetry-cert.pem:ro
+      - ./deploy/secrets/telemetry-key.pem:/run/tesla/telemetry-key.pem:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:8-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${TELEMETRY_REDIS_PASSWORD}
+    volumes:
+      - telemetry-redis:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test "$$(redis-cli -a "$${TELEMETRY_REDIS_PASSWORD}" ping)" = PONG
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    environment:
+      TELEMETRY_REDIS_PASSWORD: ${TELEMETRY_REDIS_PASSWORD}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  telemetry-forwarder:
+    build:
+      context: .
+      dockerfile: deploy/telemetry-forwarder/Dockerfile
+    environment:
+      TELEMETRY_REDIS_URL: redis://:${TELEMETRY_REDIS_PASSWORD}@redis:6379
+      TESLANAV_INGEST_URL: ${TESLANAV_INGEST_URL}
+      TESLA_TELEMETRY_INGEST_SECRET: ${TESLA_TELEMETRY_INGEST_SECRET}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  telemetry-redis:
