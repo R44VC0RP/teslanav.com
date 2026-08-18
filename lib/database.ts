@@ -81,7 +81,12 @@ database.exec(`
   );
 `);
 
-const now = new Date().toISOString();
-database.prepare("DELETE FROM device_link WHERE expires_at <= ?").run(now);
-database.prepare("DELETE FROM tesla_oauth_state WHERE expires_at <= ?").run(now);
-database.prepare("DELETE FROM car_session WHERE expires_at <= ?").run(now);
+const authSchemaExists = database
+  .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'user'")
+  .get();
+if (authSchemaExists) {
+  const now = new Date().toISOString();
+  database.prepare("DELETE FROM device_link WHERE expires_at <= ?").run(now);
+  database.prepare("DELETE FROM tesla_oauth_state WHERE expires_at <= ?").run(now);
+  database.prepare("DELETE FROM car_session WHERE expires_at <= ?").run(now);
+}
