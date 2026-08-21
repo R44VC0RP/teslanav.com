@@ -1,3 +1,5 @@
+import type { SpeedLimitRoad } from "@/types/speedlimit";
+
 export type SpeedCameraType = "speed_camera" | "red_light_camera" | "average_speed_camera";
 
 export interface SpeedCamera {
@@ -15,6 +17,7 @@ export interface SpeedCamera {
 
 export interface SpeedCameraResponse {
   cameras: SpeedCamera[];
+  speedLimits: SpeedLimitRoad[];
   timestamp: number;
   source: "osm";
 }

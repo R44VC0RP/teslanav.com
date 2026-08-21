@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Map, type MapRef } from "@/components/Map";
+import { SpeedDisplay } from "@/components/SpeedDisplay";
 import { SettingsModal } from "@/components/SettingsModal";
 import { FeedbackModal } from "@/components/FeedbackModal";
 import { ChangelogModal } from "@/components/ChangelogModal";
@@ -10,6 +11,7 @@ import { RouteSelector } from "@/components/RouteSelector";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useWazeAlerts } from "@/hooks/useWazeAlerts";
 import { useSpeedCameras } from "@/hooks/useSpeedCameras";
+import { findNearestSpeedLimit } from "@/lib/speedLimit";
 import { PROJECT_SHUTDOWN_ENABLED, PROJECT_SHUTDOWN_MESSAGE } from "@/lib/shutdown";
 import type { MapBounds } from "@/types/waze";
 import type { RouteData, RoutesResponse } from "@/types/route";
@@ -162,7 +164,7 @@ function LiveHome() {
   const simulationIndexRef = useRef(0);
   const simulationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { latitude: realLatitude, longitude: realLongitude, heading, effectiveHeading: realEffectiveHeading, speed: realSpeed, loading: geoLoading, error: geoError } = useGeolocation();
+  const { latitude: realLatitude, longitude: realLongitude, heading, effectiveHeading: realEffectiveHeading, speed: realSpeed, accuracy, loading: geoLoading, error: geoError } = useGeolocation();
   
   // Use simulated position if simulating, otherwise use real position
   const latitude = isSimulating && simulatedPosition ? simulatedPosition.lat : realLatitude;
@@ -171,7 +173,18 @@ function LiveHome() {
   // Simulated speed: ~25 m/s highway driving for testing, otherwise use real speed
   const speed = isSimulating ? 25 : realSpeed;
   const { alerts, loading: alertsLoading, cachedTileBounds } = useWazeAlerts({ bounds });
-  const { cameras } = useSpeedCameras({ bounds, enabled: showSpeedCameras });
+  const { cameras, speedLimits } = useSpeedCameras({ bounds });
+  const currentSpeedLimit = useMemo(() => {
+    if (!latitude || !longitude) return null;
+
+    return findNearestSpeedLimit(
+      speedLimits,
+      latitude,
+      longitude,
+      effectiveHeading,
+      accuracy
+    );
+  }, [speedLimits, latitude, longitude, effectiveHeading, accuracy]);
 
   // Track last route origin to detect significant movement
   const lastRouteOriginRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -953,6 +966,14 @@ function LiveHome() {
         debugTileBounds={isDevMode ? cachedTileBounds : undefined}
         use3DMode={use3DMode}
       />
+
+      <div className="absolute bottom-24 left-4 z-30">
+        <SpeedDisplay
+          speedMetersPerSecond={speed}
+          speedLimit={currentSpeedLimit}
+          isDarkMode={effectiveDarkMode}
+        />
+      </div>
 
       {/* Context Menu - Shows on long press */}
       {contextMenu && (() => {
