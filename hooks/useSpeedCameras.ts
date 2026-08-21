@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { SpeedCamera } from "@/types/speedcamera";
+import type { SpeedCamera, SpeedCameraResponse } from "@/types/speedcamera";
+import type { SpeedLimitRoad } from "@/types/speedlimit";
 import type { MapBounds } from "@/types/waze";
 
 interface UseSpeedCamerasOptions {
@@ -41,6 +42,7 @@ export function useSpeedCameras({
   minZoomLevel = 10, // Don't fetch when zoomed out past city level to avoid overloading servers
 }: UseSpeedCamerasOptions) {
   const [cameras, setCameras] = useState<SpeedCamera[]>([]);
+  const [speedLimits, setSpeedLimits] = useState<SpeedLimitRoad[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -139,8 +141,9 @@ export function useSpeedCameras({
           throw new Error("Failed to fetch speed cameras");
         }
 
-        const data = await response.json();
+        const data: SpeedCameraResponse = await response.json();
         setCameras(data.cameras || []);
+        setSpeedLimits(data.speedLimits || []);
         lastFetchedBounds.current = currentBounds;
         handleSuccess();
       } catch (err) {
@@ -188,6 +191,7 @@ export function useSpeedCameras({
 
   return {
     cameras,
+    speedLimits,
     loading,
     error,
     refetch: () => bounds && fetchCameras(bounds, true),

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { redis, CACHE_KEYS, CACHE_TTL, RATE_LIMITS } from "@/lib/redis";
 import type { SpeedCamera, SpeedCameraResponse } from "@/types/speedcamera";
+import type { SpeedLimitRoad, SpeedLimitValue } from "@/types/speedlimit";
 
 // OSM Overpass API endpoint
 const OVERPASS_API = "https://overpass-api.de/api/interpreter";
@@ -10,7 +11,7 @@ const OVERPASS_API = "https://overpass-api.de/api/interpreter";
 function getCacheKey(left: string, right: string, bottom: string, top: string): string {
   // Round to 1 decimal place (~10km precision) since cameras don't change often
   const roundTo = (n: string) => parseFloat(n).toFixed(1);
-  return `${CACHE_KEYS.OSM_CAMERAS}${roundTo(left)},${roundTo(right)},${roundTo(bottom)},${roundTo(top)}`;
+  return `${CACHE_KEYS.OSM_CAMERAS}v2:${roundTo(left)},${roundTo(right)},${roundTo(bottom)},${roundTo(top)}`;
 }
 
 // Check and increment global rate limit
@@ -35,7 +36,7 @@ async function checkRateLimit(): Promise<{ allowed: boolean; remaining: number }
   }
 }
 
-// Build Overpass QL query for speed cameras
+// Build one Overpass query for cameras and posted road speed limits.
 function buildOverpassQuery(south: number, west: number, north: number, east: number): string {
   // Query for:
   // - highway=speed_camera (dedicated speed cameras)
@@ -55,8 +56,12 @@ function buildOverpassQuery(south: number, west: number, north: number, east: nu
       node["highway"="traffic_signals"]["red_light_camera"="yes"](${bbox});
       // General enforcement nodes for maxspeed
       node["enforcement"="maxspeed"](${bbox});
+      // Roads with a posted speed limit
+      way["highway"]["maxspeed"](${bbox});
+      way["highway"]["maxspeed:forward"](${bbox});
+      way["highway"]["maxspeed:backward"](${bbox});
     );
-    out body;
+    out body geom;
   `;
 }
 
@@ -95,6 +100,45 @@ function parseOsmElement(element: {
   };
 }
 
+function parseSpeedLimit(value: string | undefined): SpeedLimitValue | null {
+  if (!value) return null;
+
+  const normalized = value.trim().toLowerCase();
+  const match = normalized.match(/^(\d+(?:\.\d+)?)\s*(mph|km\/h|kmh|kph)?$/);
+  if (!match) return null;
+
+  const parsedValue = Number(match[1]);
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) return null;
+
+  return {
+    value: parsedValue,
+    unit: match[2] === "mph" ? "mph" : "km/h",
+  };
+}
+
+function parseSpeedLimitRoad(element: {
+  id: number;
+  geometry?: Array<{ lat: number; lon: number }>;
+  tags?: Record<string, string>;
+}): SpeedLimitRoad | null {
+  const tags = element.tags ?? {};
+  const speedLimit = parseSpeedLimit(tags.maxspeed);
+  const forwardSpeedLimit = parseSpeedLimit(tags["maxspeed:forward"]);
+  const backwardSpeedLimit = parseSpeedLimit(tags["maxspeed:backward"]);
+  const fallbackSpeedLimit = speedLimit ?? forwardSpeedLimit ?? backwardSpeedLimit;
+  const coordinates = element.geometry?.map(({ lon, lat }) => [lon, lat] as [number, number]) ?? [];
+
+  if (!fallbackSpeedLimit || coordinates.length < 2) return null;
+
+  return {
+    id: `osm-way-${element.id}`,
+    coordinates,
+    speedLimit: fallbackSpeedLimit,
+    ...(forwardSpeedLimit ? { forwardSpeedLimit } : {}),
+    ...(backwardSpeedLimit ? { backwardSpeedLimit } : {}),
+  };
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   
@@ -119,7 +163,7 @@ export async function GET(request: NextRequest) {
     if (cached) {
       const cameraCount = cached.cameras?.length || 0;
       console.log(`[SpeedCameras] Cache HIT - ${cameraCount} cameras`);
-      return NextResponse.json(cached, {
+      return NextResponse.json({ ...cached, speedLimits: cached.speedLimits ?? [] }, {
         headers: {
           "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=7200",
           "X-Cache": "HIT",
@@ -145,7 +189,7 @@ export async function GET(request: NextRequest) {
     await posthog.shutdown();
 
     return NextResponse.json(
-      { error: "Rate limited", cameras: [] },
+      { error: "Rate limited", cameras: [], speedLimits: [] },
       { 
         status: 429,
         headers: {
@@ -188,7 +232,7 @@ export async function GET(request: NextRequest) {
       await posthog.shutdown();
 
       return NextResponse.json(
-        { error: "Rate limited", cameras: [] },
+        { error: "Rate limited", cameras: [], speedLimits: [] },
         { 
           status: 429,
           headers: {
@@ -203,21 +247,38 @@ export async function GET(request: NextRequest) {
       throw new Error(`Overpass API returned ${response.status}`);
     }
 
-    const data = await response.json();
+    const data: {
+      elements?: Array<{
+        type: string;
+        id: number;
+        lat?: number;
+        lon?: number;
+        geometry?: Array<{ lat: number; lon: number }>;
+        tags?: Record<string, string>;
+      }>;
+    } = await response.json();
+    const elements = data.elements ?? [];
     
     // Parse OSM elements into SpeedCamera objects
-    const cameras: SpeedCamera[] = (data.elements || [])
-      .filter((el: { type: string }) => el.type === "node")
+    const cameras: SpeedCamera[] = elements
+      .filter((element): element is typeof element & { lat: number; lon: number } =>
+        element.type === "node" && element.lat !== undefined && element.lon !== undefined
+      )
       .map(parseOsmElement);
+    const speedLimits = elements
+      .filter((element) => element.type === "way")
+      .map(parseSpeedLimitRoad)
+      .filter((road): road is SpeedLimitRoad => road !== null);
 
     // Count by type for logging
     const speedCams = cameras.filter(c => c.type === "speed_camera").length;
     const redLightCams = cameras.filter(c => c.type === "red_light_camera").length;
     const avgSpeedCams = cameras.filter(c => c.type === "average_speed_camera").length;
-    console.log(`[SpeedCameras] Cache MISS - Fetched ${cameras.length} cameras from OSM (speed: ${speedCams}, red light: ${redLightCams}, avg speed: ${avgSpeedCams})`);
+    console.log(`[SpeedCameras] Cache MISS - Fetched ${cameras.length} cameras and ${speedLimits.length} speed limits from OSM (speed: ${speedCams}, red light: ${redLightCams}, avg speed: ${avgSpeedCams})`);
 
     const result: SpeedCameraResponse = {
       cameras,
+      speedLimits,
       timestamp: Date.now(),
       source: "osm",
     };
@@ -254,7 +315,7 @@ export async function GET(request: NextRequest) {
     try {
       const stale = await redis.get<SpeedCameraResponse>(cacheKey);
       if (stale) {
-        return NextResponse.json(stale, {
+        return NextResponse.json({ ...stale, speedLimits: stale.speedLimits ?? [] }, {
           headers: {
             "Cache-Control": "public, s-maxage=300",
             "X-Cache": "STALE",
@@ -266,7 +327,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: "Failed to fetch speed camera data", cameras: [] },
+      { error: "Failed to fetch speed camera data", cameras: [], speedLimits: [] },
       { status: 500 }
     );
   }

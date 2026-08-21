@@ -94,10 +94,12 @@ export function useGeolocation(enableHighAccuracy = true) {
     lat: number;
     lon: number;
     timestamp: number;
+    accuracy: number;
   } | null>(null);
   
   // Store the last calculated heading for smoothing
   const lastHeadingRef = useRef<number | null>(null);
+  const lastSpeedRef = useRef<number | null>(null);
   
   // Minimum distance (meters) to travel before updating heading
   const MIN_DISTANCE_FOR_HEADING = 3;
@@ -108,16 +110,42 @@ export function useGeolocation(enableHighAccuracy = true) {
   const updatePosition = useCallback((position: GeolocationPosition) => {
     const { latitude, longitude, heading: geoHeading, speed, accuracy } = position.coords;
     const timestamp = position.timestamp;
+    const previousPosition = prevPositionRef.current;
+    let effectiveSpeed = speed !== null && Number.isFinite(speed) && speed >= 0 ? speed : null;
+
+    // Tesla/browser GPS implementations do not always populate coords.speed.
+    // Fall back to distance over time while filtering stationary GPS drift.
+    if (effectiveSpeed === null && previousPosition) {
+      const distance = calculateDistance(
+        previousPosition.lat,
+        previousPosition.lon,
+        latitude,
+        longitude
+      );
+      const timeDelta = (timestamp - previousPosition.timestamp) / 1000;
+
+      if (timeDelta > 0 && timeDelta < 30) {
+        const driftThreshold = Math.max(3, Math.min(accuracy, previousPosition.accuracy) * 0.25);
+        const measuredSpeed = distance <= driftThreshold ? 0 : distance / timeDelta;
+        effectiveSpeed = lastSpeedRef.current === null
+          ? measuredSpeed
+          : lastSpeedRef.current * 0.65 + measuredSpeed * 0.35;
+      }
+    }
+
+    if (effectiveSpeed !== null) {
+      lastSpeedRef.current = effectiveSpeed;
+    }
     
     let calculatedHeading: number | null = null;
     
     // Try to use GPS heading first (only valid when moving)
-    if (geoHeading !== null && !isNaN(geoHeading) && speed !== null && speed > MIN_SPEED_FOR_HEADING) {
+    if (geoHeading !== null && !isNaN(geoHeading) && effectiveSpeed !== null && effectiveSpeed > MIN_SPEED_FOR_HEADING) {
       calculatedHeading = geoHeading;
     }
     // Otherwise, calculate from movement
-    else if (prevPositionRef.current) {
-      const prev = prevPositionRef.current;
+    else if (previousPosition) {
+      const prev = previousPosition;
       const distance = calculateDistance(prev.lat, prev.lon, latitude, longitude);
       const timeDelta = (timestamp - prev.timestamp) / 1000; // seconds
       
@@ -143,14 +171,14 @@ export function useGeolocation(enableHighAccuracy = true) {
     }
     
     // Always update previous position for next calculation
-    prevPositionRef.current = { lat: latitude, lon: longitude, timestamp };
+    prevPositionRef.current = { lat: latitude, lon: longitude, timestamp, accuracy };
 
     setState({
       latitude,
       longitude,
       accuracy,
       heading: geoHeading,
-      speed,
+      speed: effectiveSpeed,
       error: null,
       loading: false,
       calculatedHeading,
